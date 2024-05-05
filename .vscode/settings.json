@@ -1,0 +1,13 @@
+{
+    "cSpell.enabled": true,
+    "cSpell.enableFiletypes": [
+        "rst"
+    ],
+    "cSpell.words": [
+        "mireds"
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true
+    }
+}

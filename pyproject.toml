@@ -1,0 +1,36 @@
+[project]
+name = "HueBLE"
+version = "1.0.0"
+dependencies = [
+  "bleak>=0.19.0",
+  "bleak-retry-connector"
+]
+requires-python = ">=3.10"
+authors = [
+  { name="Harvey Lelliott", email="harveylelliott@duck.com" },
+]
+description = "Python module for controlling and monitoring Bluetooth Philips Hue bulbs"
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+keywords = ["Philips Hue", "BLE", "Home Assistant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Home Automation",
+    "License :: OSI Approved :: MIT License",
+    "Framework :: AsyncIO",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.10"
+]
+
+[tool.setuptools]
+py-modules = ['HueBLE']
+
+[project.urls]
+Homepage = "https://github.com/flip-dots/HueBLE"
+Documentation = "https://hueble.readthedocs.io/en/latest/"
+Repository = "https://github.com/flip-dots/HueBLE"
+Issues = "https://github.com/flip-dots/HueBLE/issues"
+Changelog = "https://github.com/flip-dots/HueBLE/CHANGELOG.rst"
