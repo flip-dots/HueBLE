@@ -1,10 +1,14 @@
 # HueBLE
 
-![HueBLE logo](/hue_ble.png)
+![HueBLE logo](https://raw.githubusercontent.com/flip-dots/HueBLE/main/hue_ble.png)
 
+[![PyPI Status](https://img.shields.io/pypi/v/HueBLE.svg)](https://pypi.python.org/pypi/HueBLE)
+[![Documentation Status](https://readthedocs.org/projects/hueble/badge/?version=latest)](https://hueble.readthedocs.io/en/latest/?badge=latest)
+[![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 Python module for controlling Bluetooth Philips Hue lights.
  - 👌 Free software: MIT license
+ - 🍝 Sauce: https://github.com/flip-dots/HueBLE
  - 🖨️ Documentation: https://hueble.readthedocs.io/en/latest/
  - 📦 PIP: https://pypi.org/project/HueBLE/
 

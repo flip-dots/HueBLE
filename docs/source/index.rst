@@ -1,10 +1,21 @@
 HueBLE
 ======
 
-.. figure:: https://raw.githubusercontent.com/flip-dots/HueBLE/master/hue_ble.png
+.. figure:: https://raw.githubusercontent.com/flip-dots/HueBLE/main/hue_ble.png
     :target: https://github.com/flip-dots/HueBLE
     :alt: HueBLE Logo
     :scale: 50%
+
+.. image:: https://img.shields.io/pypi/v/HueBLE.svg
+    :target: https://pypi.python.org/pypi/HueBLE
+
+.. image:: https://readthedocs.org/projects/hueble/badge/?version=latest
+    :target: https://hueble.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
+      
+.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+    :target: https://github.com/psf/black
+    :alt: Black
 
 Python module for controlling Bluetooth Philips Hue lights
 
