@@ -1,11 +1,11 @@
 [project]
 name = "HueBLE"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
   "bleak>=0.19.0",
   "bleak-retry-connector"
 ]
-requires-python = ">=3.10"
+requires-python = ">= 3.10"
 authors = [
   { name="Harvey Lelliott", email="harveylelliott@duck.com" },
 ]

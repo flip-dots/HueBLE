@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`1.0.3`_ (2024-05-12)
+=====================
+
+Changed
+-------
+
+* Formatting changes
+
+Fixed
+-----
+
+* Resolved issue with automatic re-connect causing an exception due to missing brackets :P 
+
 `1.0.2`_ (2024-05-12)
 =====================
 
@@ -50,6 +63,7 @@ Fixed
 * HueBLE created.
 
 
+.. _1.0.3: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.3
 .. _1.0.2: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.2
 .. _1.0.1: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.1
 .. _1.0.0: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.0
