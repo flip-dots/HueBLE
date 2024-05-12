@@ -98,6 +98,12 @@ DEFAULT_POLL_WRITES_STATE = True
 #: Default amount of time to scan for a light for in the discovery method.
 DEFAULT_DISCOVER_TIME = 5
 
+#: Default time to wait in the reconnect method between connecting and disconnecting.
+DEFAULT_RECONNECT_DELAY = 3
+
+#: Maximum amount of automatic reconnection attempts the program will make.
+DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,7 +135,8 @@ class HueBleLight(object):
         self._colour_xy = None
 
         self._state_changed_callbacks: list[Callable[[], None]] = []
-        self._expect_disconnect = False
+        self._expect_disconnect = True
+        self._connection_attempts = 0
         self._connection_lock: asyncio.Lock = asyncio.Lock()
         self._state_update_lock: asyncio.Lock = asyncio.Lock()
 
@@ -174,16 +181,25 @@ class HueBleLight(object):
 
         _LOGGER.warn(
             f"""Unexpected disconnect from "{client}"."""
-            f""" Will attempt reconnect."""
         )
 
         # Run callbacks if we did not expect the disconnect
         self._run_state_changed_callbacks()
 
-        # Try and reconnect
-        asyncio.create_task(self.connect())
+        if (DEFAULT_MAX_RECONNECT_ATTEMPTS == -1
+            or self._connection_attempts < DEFAULT_MAX_RECONNECT_ATTEMPTS):
 
-    async def reconnect(self):
+            # Try and reconnect
+            asyncio.create_task(self.reconnect)
+
+        else:
+            _LOGGER.warn(
+                f"""Maximum re-connect attempts to "{client}". exceeded."""
+                """ Will NOT attempt reconnect."""
+            )
+
+
+    async def reconnect(self, reconnect_delay: int = DEFAULT_RECONNECT_DELAY):
         """Disconnects then reconnects to the device.
         Simply calls disconnect then calls connect.
         """
@@ -196,6 +212,7 @@ class HueBleLight(object):
         # if the OS starts being silly. Might make sense to do that in the
         # future though, so heads up future me or other equally cool person.
         await self.disconnect()
+        await asyncio.sleep(reconnect_delay)
         await self.connect()
 
     async def _subscribe_to_light(self) -> bool:
@@ -296,9 +313,6 @@ class HueBleLight(object):
         wait to acquire a lock to attempt to perform a connection.
         """
 
-        # If we call connect we do not expect a disconnect
-        self._expect_disconnect = False
-
         # If we are already connected then do nothing
         if self.connected:
             _LOGGER.debug(f"""Already connected to "{self.name}" Nothing to do here.""")
@@ -334,6 +348,9 @@ class HueBleLight(object):
                         f"""Connecting to "{self.name}" with address"""
                         f""" "{self.address}"."""
                     )
+
+                    # Increment attempts
+                    self._connection_attempts += 1
 
                     # Maximum time to make a connection
                     try:
@@ -401,14 +418,26 @@ class HueBleLight(object):
                             if not await self._determine_services():
                                 return False
 
-                            # Inform of subscription attempt
-                            _LOGGER.debug(
-                                f"""Attempting to subscribe to services"""
-                                f""" offered by light "{self.name}"."""
-                            )
+                          
+                            # If we failed to subscribe to the lights state updates
+                            if not await self._subscribe_to_light():
 
-                            # If subscribing was successful then we are good!
-                            return await self._subscribe_to_light()
+                                _LOGGER.debug(
+                                    f""" Failed to subscribe to services"""
+                                    f""" offered by light "{self.name}"."""
+                                )
+
+                                return False
+                               
+                            # If the connection was successful, and we are paired, 
+                            # authenticated, and subscribed, then we no longer
+                            # expect to be disconnected
+                            self._expect_disconnect = False
+
+                            # We also reset the attempts counter since we succeeded
+                            self._connection_attempts = 0
+                           
+                            return True
 
                     except asyncio.TimeoutError as e:
                         _LOGGER.error(
