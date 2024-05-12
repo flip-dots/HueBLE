@@ -450,6 +450,11 @@ class HueBleLight(object):
                 f"""Timed out waiting for connection lock for"""
                 f""" "{self.name}". Error "{e}"."""
             )
+        except Exception as e:
+            _LOGGER.error(
+                f"""Exception connecting to light"""
+                f""" "{self.name}". Error "{e}"."""
+            )
 
         return False
 
@@ -601,92 +606,107 @@ class HueBleLight(object):
                 f"""Waiting for state update lock of "{self.name}" to be"""
                 f""" released."""
             )
+        
+        try:
 
-        # Timeout if waiting too long
-        async with asyncio.timeout(timeout):
+            # Timeout if waiting too long
+            async with asyncio.timeout(timeout):
 
-            # Only one device may poll at a time
-            async with self._state_update_lock:
+                # Only one device may poll at a time
+                async with self._state_update_lock:
 
-                _LOGGER.debug(
-                    f"""Processing state update request for""" f""" "{self.name}"."""
-                )
+                    _LOGGER.debug(
+                        f"""Processing state update request for""" f""" "{self.name}"."""
+                    )
 
-                # Exceptions are added to the log and a list of them is
-                # returned by the method but they are otherwise ignored.
-                try:
-                    prev = self.manufacturer
-                    if prev != await self.poll_manufacturer(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.model
-                    if prev != await self.poll_model(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.firmware
-                    if prev != await self.poll_firmware(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.zigbee_address
-                    if prev != await self.poll_zigbee_address(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self._light_name
-                    if prev != await self.poll_light_name(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.power_state
-                    if prev != await self.poll_power_state(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.brightness
-                    if prev != await self.poll_brightness(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.colour_temp
-                    if prev != await self.poll_colour_temp(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
-                try:
-                    prev = self.colour_xy
-                    if prev != await self.poll_colour_xy(write_state=True):
-                        state_changed = True
-                except Exception as e:
-                    exceptions.append(e)
+                    # Exceptions are added to the log and a list of them is
+                    # returned by the method but they are otherwise ignored.
+                    try:
+                        prev = self.manufacturer
+                        if prev != await self.poll_manufacturer(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.model
+                        if prev != await self.poll_model(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.firmware
+                        if prev != await self.poll_firmware(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.zigbee_address
+                        if prev != await self.poll_zigbee_address(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self._light_name
+                        if prev != await self.poll_light_name(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.power_state
+                        if prev != await self.poll_power_state(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.brightness
+                        if prev != await self.poll_brightness(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.colour_temp
+                        if prev != await self.poll_colour_temp(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
+                    try:
+                        prev = self.colour_xy
+                        if prev != await self.poll_colour_xy(write_state=True):
+                            state_changed = True
+                    except Exception as e:
+                        exceptions.append(e)
 
-                # Print it all out for debugging
-                _LOGGER.debug(
-                    f"""Data from light "{self.name}"\n"""
-                    f"""MAC address "{self.address}"\n"""
-                    f"""Name in Hue app: "{self.name_in_app}"\n"""
-                    f"""Manufacturer: "{self.manufacturer}"\n"""
-                    f"""Model: "{self.model}"\n"""
-                    f"""Firmware: "{self.firmware}"\n"""
-                    f"""ZigBee Address: "{self.zigbee_address}"\n"""
-                    f"""Power state: "{self.power_state}"\n"""
-                    f"""Brightness: "{self.brightness}"\n"""
-                    f"""Colour temp: "{self.colour_temp}"\n"""
-                    f"""Colour XY: "{self.colour_xy}"."""
-                )
+                    # Print it all out for debugging
+                    _LOGGER.debug(
+                        f"""Data from light "{self.name}"\n"""
+                        f"""MAC address "{self.address}"\n"""
+                        f"""Name in Hue app: "{self.name_in_app}"\n"""
+                        f"""Manufacturer: "{self.manufacturer}"\n"""
+                        f"""Model: "{self.model}"\n"""
+                        f"""Firmware: "{self.firmware}"\n"""
+                        f"""ZigBee Address: "{self.zigbee_address}"\n"""
+                        f"""Power state: "{self.power_state}"\n"""
+                        f"""Brightness: "{self.brightness}"\n"""
+                        f"""Colour temp: "{self.colour_temp}"\n"""
+                        f"""Colour XY: "{self.colour_xy}"."""
+                    )
 
-            # Callbacks are run outside of the state update lock
-            if run_callbacks and state_changed:
-                self._run_state_changed_callbacks()
+                # Callbacks are run outside of the state update lock
+                if run_callbacks and state_changed:
+                    self._run_state_changed_callbacks()
+
+        except asyncio.TimeoutError as e:
+            exceptions.append(e)
+            _LOGGER.error(
+                f"""Timed out waiting for poll_state lock for"""
+                f""" "{self.name}". Error "{e}"."""
+            )
+        except Exception as e:
+            exceptions.append(e)
+            _LOGGER.error(
+                f"""Exception polling state of light"""
+                f""" "{self.name}". Error "{e}"."""
+            )
 
         return state_changed, exceptions
 
