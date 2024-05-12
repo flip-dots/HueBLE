@@ -221,6 +221,19 @@ The following methods can be used to change the current state of the light.
 - :py:meth:`.set_colour_xy`
 
 
+Automatic Reconnection 
+^^^^^^^^^^^^^^^^^^^^^^
+
+This module implements two forms of automatic re-connection. The module
+listens for disconnection events and only once the light has successfully 
+been connected to will it attempt to automatically re-establish a connection
+if it is lost. The delay to wait between attempts and maximum number of attempts
+are defined as module constants which may be overridden.
+
+The other mechanism will attempt to re-establish a connection whenever a method 
+which requires a connection is called.
+
+
 Other neat things
 ^^^^^^^^^^^^^^^^^
 
