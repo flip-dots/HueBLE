@@ -94,19 +94,19 @@ async def main():
                     # Set brightness
                     case 2:
                         print("Enter brightness value (0-255)")
-                        await light.set_brightness(int(input()))
+                        await light.set_brightness(int(await ainput()))
 
                     # Set colour temp
                     case 3:
                         print("Enter colour temp (153-500)")
-                        await light.set_colour_temp(int(input()))
+                        await light.set_colour_temp(int(await ainput()))
 
                     # Set XY colour
                     case 4:
                         print("Enter X value of color (0.0-1.0)")
-                        x = float(input())
+                        x = float(await ainput())
                         print("Enter Y value of color (0.0-1.0)")
-                        y = float(input())
+                        y = float(await ainput())
                         await light.set_colour_xy(x, y)
                     # Print all light metadata
                     case 5:
