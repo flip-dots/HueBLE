@@ -179,25 +179,24 @@ class HueBleLight(object):
             _LOGGER.info(f"""Received expected disconnect from "{client}".""")
             return
 
-        _LOGGER.warn(
-            f"""Unexpected disconnect from "{client}"."""
-        )
+        _LOGGER.warn(f"""Unexpected disconnect from "{client}".""")
 
         # Run callbacks if we did not expect the disconnect
         self._run_state_changed_callbacks()
 
-        if (DEFAULT_MAX_RECONNECT_ATTEMPTS == -1
-            or self._connection_attempts < DEFAULT_MAX_RECONNECT_ATTEMPTS):
+        if (
+            DEFAULT_MAX_RECONNECT_ATTEMPTS == -1
+            or self._connection_attempts < DEFAULT_MAX_RECONNECT_ATTEMPTS
+        ):
 
             # Try and reconnect
-            asyncio.create_task(self.reconnect)
+            asyncio.create_task(self.reconnect())
 
         else:
             _LOGGER.warn(
                 f"""Maximum re-connect attempts to "{client}". exceeded."""
                 """ Will NOT attempt reconnect."""
             )
-
 
     async def reconnect(self, reconnect_delay: int = DEFAULT_RECONNECT_DELAY):
         """Disconnects then reconnects to the device.
@@ -418,7 +417,6 @@ class HueBleLight(object):
                             if not await self._determine_services():
                                 return False
 
-                          
                             # If we failed to subscribe to the lights state updates
                             if not await self._subscribe_to_light():
 
@@ -428,15 +426,15 @@ class HueBleLight(object):
                                 )
 
                                 return False
-                               
-                            # If the connection was successful, and we are paired, 
+
+                            # If the connection was successful, and we are paired,
                             # authenticated, and subscribed, then we no longer
                             # expect to be disconnected
                             self._expect_disconnect = False
 
                             # We also reset the attempts counter since we succeeded
                             self._connection_attempts = 0
-                           
+
                             return True
 
                     except asyncio.TimeoutError as e:
@@ -452,8 +450,7 @@ class HueBleLight(object):
             )
         except Exception as e:
             _LOGGER.error(
-                f"""Exception connecting to light"""
-                f""" "{self.name}". Error "{e}"."""
+                f"""Exception connecting to light""" f""" "{self.name}". Error "{e}"."""
             )
 
         return False
@@ -606,7 +603,7 @@ class HueBleLight(object):
                 f"""Waiting for state update lock of "{self.name}" to be"""
                 f""" released."""
             )
-        
+
         try:
 
             # Timeout if waiting too long
@@ -616,7 +613,8 @@ class HueBleLight(object):
                 async with self._state_update_lock:
 
                     _LOGGER.debug(
-                        f"""Processing state update request for""" f""" "{self.name}"."""
+                        f"""Processing state update request for"""
+                        f""" "{self.name}"."""
                     )
 
                     # Exceptions are added to the log and a list of them is
