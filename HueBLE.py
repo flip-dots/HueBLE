@@ -164,15 +164,19 @@ class HueBleLight(object):
         """Private method. Updates program state and will attempt reconnect
         if the disconnect was unexpected.
         """
-        # Warn about weird edge case. This doesn't seem to cause any issues
-        # anymore but it's still weird that this happens so im leaving it here
-        # to help future me in case it bugs out again.
+        # If the disconnect did not come from the class client then either
+        # its null, in which case disconnect() was run and connect() was not
+        # or we made a fresh BleakClient and should ignore the disconnect
+        # event from the old one, either way we ignore the event.
+        # The log message is here to help with debugging in case it causes
+        # issues again in future. It can probably be removed in some later version.
         if client != self._client:
-            _LOGGER.warn(
+            _LOGGER.debug(
                 f"""The disconnect came from an unexpected client. The class"""
                 f""" client is "{self._client}", but the callback"""
-                f""" gave us "{client}". Will run disconnect anyway."""
+                f""" gave us "{client}". Ignoring disconnect event."""
             )
+            return
 
         # If we expected the disconnect then we don't try to reconnect.
         if self._expect_disconnect:
