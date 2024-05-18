@@ -35,7 +35,7 @@ It leverages the Bleak library to interact with Bluetooth Philips Hue lights.
 
 ## Requirements
 
-- 🐍 Python 3.10+
+- 🐍 Python 3.11+
 - 📶 Bleak 0.19.0+
 - 📶 bleak-retry-connector
 
