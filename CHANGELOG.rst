@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`1.0.4`_ (2024-05-18)
+=====================
+
+Changed
+-------
+
+* Increment minimum Python version to `3.11`. `asyncio.timeout` requires `> 3.10` not `>= 3.10`.
+
+Fixed
+-----
+
+* Resolved issue which could cause module to get stuck in a connection loop after an
+  unexpected disconnect in an edge case.
+
 `1.0.3`_ (2024-05-12)
 =====================
 
@@ -63,6 +77,7 @@ Fixed
 * HueBLE created.
 
 
+.. _1.0.4: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.4
 .. _1.0.3: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.3
 .. _1.0.2: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.2
 .. _1.0.1: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.1
