@@ -70,16 +70,20 @@ DEFAULT_CONNECTION_TIMEOUT = 30
 #: another call to connect to finish its attempt.
 DEFAULT_CONNECTION_WAIT_TIMEOUT = 120
 
+#: Default of if making a successful connection to the light triggers
+#: callbacks to be run.
+DEFAULT_ON_CONNECT_RUN_CALLBACKS = True
+
 #: Default time to wait after pairing to check if it was successful.
 DEFAULT_PAIR_DELAY = 1
 
 #: Default max time before a call to poll state times out.
-DEFAULT_POLL_STATE_TIMEOUT = 30
+DEFAULT_POLL_STATE_TIMEOUT = 45
 
 #: Default max time before a single read attempt to the light times out and it
 #: will try again. This must be large enough to allow for a connection attempt
 #: if the light is not already connected.
-DEFAULT_READ_GATT_TIMEOUT = 15
+DEFAULT_READ_GATT_TIMEOUT = 20
 
 #: Default max light read attempts before raising an exception.
 DEFAULT_READ_GATT_MAX_ATTEMPTS = 3
@@ -87,7 +91,7 @@ DEFAULT_READ_GATT_MAX_ATTEMPTS = 3
 #: Default max time before a single write attempt to the light times out and it
 #: will try again. This must be large enough to allow for a connection attempt
 #: if the light is not already connected.
-DEFAULT_WRITE_GATT_TIMEOUT = 15
+DEFAULT_WRITE_GATT_TIMEOUT = 20
 
 #: Default max light write attempts before raising an exception.
 DEFAULT_WRITE_GATT_MAX_ATTEMPTS = 3
@@ -297,6 +301,7 @@ class HueBleLight(object):
         max_attempts: int = DEFAULT_CONNECTION_ATTEMPTS_MAX,
         connection_timeout: int = DEFAULT_CONNECTION_TIMEOUT,
         wait_timeout: int = DEFAULT_CONNECTION_WAIT_TIMEOUT,
+        run_callbacks: bool = DEFAULT_ON_CONNECT_RUN_CALLBACKS,
     ) -> bool:
         """Connects to the light using bluetooth. This can be manually called
         but it will also be run automatically if the light is not
@@ -314,6 +319,9 @@ class HueBleLight(object):
 
         Wait timeout is the maximum amount of time that the method will
         wait to acquire a lock to attempt to perform a connection.
+
+        Registered callbacks will be run if a connection is achieved
+        unless disabled.
         """
 
         # If we are already connected then do nothing
@@ -439,25 +447,33 @@ class HueBleLight(object):
                             # We also reset the attempts counter since we succeeded
                             self._connection_attempts = 0
 
-                            return True
+                            # We then exit the timeout context, run callbacks if required,
+                            # since we have achieved a connection, a state change, then
+                            # return true
 
                     except asyncio.TimeoutError as e:
                         _LOGGER.error(
                             f"""Timed out attempting to connect to"""
                             f""" "{self.name}". Error "{e}"."""
                         )
+                        return False
 
         except asyncio.TimeoutError as e:
             _LOGGER.error(
                 f"""Timed out waiting for connection lock for"""
                 f""" "{self.name}". Error "{e}"."""
             )
+            return False
         except Exception as e:
             _LOGGER.error(
                 f"""Exception connecting to light""" f""" "{self.name}". Error "{e}"."""
             )
+            return False
 
-        return False
+        if self.connected and run_callbacks:
+            self._run_state_changed_callbacks()
+
+        return True
 
     async def pair(self) -> bool:
         """Attempts to pair to the light and returns the result.
