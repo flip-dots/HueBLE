@@ -913,8 +913,8 @@ class HueBleLight(object):
     @property
     def authenticated(self) -> bool | None:
         """Returns true if the light is paired and trusted.
-        This only works on Linux. On other platforms this
-        returns None.
+        This only works on Linux. Returns None if unable
+        to determine if device is authenticated.
         """
 
         # If the platform is not Linux then as far as I know there is
@@ -928,6 +928,11 @@ class HueBleLight(object):
 
         # Get Linux specific properties of our connection
         properties = self._ble_device.details.get("props")
+
+        # If the system does not have device properties then
+        # it is unknown if we are authenticated to it
+        if properties is None:
+            return None
 
         # If we are paired and trusted by the light we are good
         if properties.get("Paired") is True:
@@ -1050,7 +1055,7 @@ class HueBleLight(object):
             return None
 
     @property
-    def colour_xy(self) -> tuple[int, int] | None:
+    def colour_xy(self) -> tuple[float, float] | None:
         """Colour in XY coordinates. (0.0, 0.0) - (1.0, 1.0).
         Returns None if the feature is not supported by the light.
         """
