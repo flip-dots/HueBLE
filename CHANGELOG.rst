@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`1.0.6`_ (2024-06-30)
+=====================
+
+Fixed
+-----
+
+* Fixed incorrect type hint for colour_temp property
+* Fixed exception on light.authenticated if Linux system does not return the expected data
+
 `1.0.5`_ (2024-05-19)
 =====================
 
@@ -85,6 +94,7 @@ Fixed
 * HueBLE created.
 
 
+.. _1.0.6: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.6
 .. _1.0.5: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.5
 .. _1.0.4: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.4
 .. _1.0.3: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.3
