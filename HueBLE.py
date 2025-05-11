@@ -380,14 +380,14 @@ class HueBleLight(object):
                                 f"""Using client "{self._client}" with """
                                 f"""backend "{self._client._backend}"."""
                             )
+                            if _LOGGER.isEnabledFor(logging.DEBUG):
+                                await self.print_services()
 
                             # If we failed to connect
                             if not self._client.is_connected:
                                 _LOGGER.error(
                                     f"""Failed to connect to "{self.name}"."""
                                 )
-                                if _LOGGER.isEnabledFor(_LOGGER.debug):
-                                    await self.print_services()
                                 return False
 
                             # Check if the light is paired and trusted
@@ -785,6 +785,46 @@ class HueBleLight(object):
             f"""Unable to write to "{self.name}" after"""
             f""" {max_attempts} attempts"""
         )
+
+    async def print_services(self) -> None:
+        """
+        Prints all available GATT services in the debug log.
+        See: `original <https://github.com/hbldh/bleak/blob/develop/examples/service_explorer.py>`_
+        """
+
+        for service in self._client.services:
+            _LOGGER.debug("[Service] %s", service)
+
+            for char in service.characteristics:
+                if "read" in char.properties:
+                    try:
+                        value = await self._client.read_gatt_char(char.uuid)
+                        extra = f", Value: {value}"
+                    except Exception as e:
+                        extra = f", Error: {e}"
+                else:
+                    extra = ""
+
+                if "write-without-response" in char.properties:
+                    extra += f", Max write w/o rsp size: {char.max_write_without_response_size}"
+
+                _LOGGER.debug(
+                    "  [Characteristic] %s (%s)%s",
+                    char,
+                    ",".join(char.properties),
+                    extra,
+                )
+
+                for descriptor in char.descriptors:
+                    try:
+                        value = await self._client.read_gatt_descriptor(
+                            descriptor.handle
+                        )
+                        _LOGGER.debug(
+                            "    [Descriptor] %s, Value: %r", descriptor, value
+                        )
+                    except Exception as e:
+                        _LOGGER.debug("    [Descriptor] %s, Error: %s", descriptor, e)
 
     async def poll_manufacturer(
         self, write_state: bool = DEFAULT_POLL_WRITES_STATE
