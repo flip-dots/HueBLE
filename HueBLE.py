@@ -805,9 +805,6 @@ class HueBleLight(object):
                 else:
                     extra = ""
 
-                if "write-without-response" in char.properties:
-                    extra += f", Max write w/o rsp size: {char.max_write_without_response_size}"
-
                 _LOGGER.debug(
                     "  [Characteristic] %s (%s)%s",
                     char,
