@@ -126,11 +126,11 @@ class HueBleLight(object):
 
         self._ble_device = ble_device
         self._client: BleakClient = None
-        self._manufacturer = DEFAULT_METADATA_STRING
-        self._model = DEFAULT_METADATA_STRING
-        self._fw = DEFAULT_METADATA_STRING
-        self._zigbee_address = DEFAULT_METADATA_STRING
-        self._light_name = DEFAULT_METADATA_STRING
+        self._manufacturer = None
+        self._model = None
+        self._fw = None
+        self._zigbee_address = None
+        self._light_name = None
         self._power_on = False
         self._brightness = None
         self._colour_temp = None
@@ -537,6 +537,46 @@ class HueBleLight(object):
                         f"descriptors: {char.descriptors}"
                     )
 
+            if services.get_characteristic(UUID_MANUFACTURER):
+                self._manufacturer = DEFAULT_METADATA_STRING
+            else:
+                _LOGGER.warning(
+                    f"""Light "{self.name}" does not appear to """
+                    f"""support polling the manufacturer metadata."""
+                )
+
+            if services.get_characteristic(UUID_MODEL):
+                self._model = DEFAULT_METADATA_STRING
+            else:
+                _LOGGER.warning(
+                    f"""Light "{self.name}" does not appear to """
+                    f"""support polling the model metadata."""
+                )
+
+            if services.get_characteristic(UUID_FW_VERSION):
+                self._fw = DEFAULT_METADATA_STRING
+            else:
+                _LOGGER.warning(
+                    f"""Light "{self.name}" does not appear to """
+                    f"""support polling the firmware version metadata."""
+                )
+
+            if services.get_characteristic(UUID_ZIGBEE_ADDRESS):
+                self._zigbee_address = DEFAULT_METADATA_STRING
+            else:
+                _LOGGER.warning(
+                    f"""Light "{self.name}" does not appear to """
+                    f"""support polling the ZigBee address metadata."""
+                )
+
+            if services.get_characteristic(UUID_NAME):
+                self._light_name = DEFAULT_METADATA_STRING
+            else:
+                _LOGGER.warning(
+                    f"""Light "{self.name}" does not appear to """
+                    f"""support polling the light name."""
+                )
+
             if services.get_characteristic(UUID_POWER) is not None:
                 self._power_on = False
             else:
@@ -606,127 +646,113 @@ class HueBleLight(object):
 
     async def poll_state(
         self, timeout=DEFAULT_POLL_STATE_TIMEOUT, run_callbacks=True
-    ) -> tuple[bool, list[Exception]]:
+    ) -> bool:
         """Updates the local state with values from the light using polling.
+        This will only populate the fields that the light supports (i.e it
+        should not error out if your light does not support colour).
         A lock is used to only allow one state update at a time with
         a timeout. Any callbacks are run outside of the state lock but
         within the timeout lock. asyncio.TimeoutError raised on timeout.
-        Returns true/false if the state changed and a list of exceptions.
+        Returns true/false if the state changed. Passes through any raised exceptions.
         """
-
         state_changed = False
-        exceptions = []
 
         if self._state_update_lock.locked():
-
             _LOGGER.debug(
                 f"""Waiting for state update lock of "{self.name}" to be"""
                 f""" released."""
             )
 
-        try:
+        # Timeout if waiting too long
+        async with asyncio.timeout(timeout):
 
-            # Timeout if waiting too long
-            async with asyncio.timeout(timeout):
+            # Only one device may poll at a time
+            async with self._state_update_lock:
+                _LOGGER.debug(f"""Processing state update request for "{self.name}".""")
 
-                # Only one device may poll at a time
-                async with self._state_update_lock:
+                if self._manufacturer:
+                    prev = self.manufacturer
+                    if prev != await self.poll_manufacturer(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling manufacturer")
 
-                    _LOGGER.debug(
-                        f"""Processing state update request for"""
-                        f""" "{self.name}"."""
-                    )
+                if self._model:
+                    prev = self.model
+                    if prev != await self.poll_model(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling model")
 
-                    # Exceptions are added to the log and a list of them is
-                    # returned by the method but they are otherwise ignored.
-                    try:
-                        prev = self.manufacturer
-                        if prev != await self.poll_manufacturer(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.model
-                        if prev != await self.poll_model(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.firmware
-                        if prev != await self.poll_firmware(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.zigbee_address
-                        if prev != await self.poll_zigbee_address(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self._light_name
-                        if prev != await self.poll_light_name(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.power_state
-                        if prev != await self.poll_power_state(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.brightness
-                        if prev != await self.poll_brightness(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.colour_temp
-                        if prev != await self.poll_colour_temp(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
-                    try:
-                        prev = self.colour_xy
-                        if prev != await self.poll_colour_xy(write_state=True):
-                            state_changed = True
-                    except Exception as e:
-                        exceptions.append(e)
+                if self._fw:
+                    prev = self.firmware
+                    if prev != await self.poll_firmware(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling firmware version")
 
-                    # Print it all out for debugging
-                    _LOGGER.debug(
-                        f"""Data from light "{self.name}"\n"""
-                        f"""MAC address "{self.address}"\n"""
-                        f"""Name in Hue app: "{self.name_in_app}"\n"""
-                        f"""Manufacturer: "{self.manufacturer}"\n"""
-                        f"""Model: "{self.model}"\n"""
-                        f"""Firmware: "{self.firmware}"\n"""
-                        f"""ZigBee Address: "{self.zigbee_address}"\n"""
-                        f"""Power state: "{self.power_state}"\n"""
-                        f"""Brightness: "{self.brightness}"\n"""
-                        f"""Colour temp: "{self.colour_temp}"\n"""
-                        f"""Colour XY: "{self.colour_xy}"."""
-                    )
+                if self._zigbee_address:
+                    prev = self.zigbee_address
+                    if prev != await self.poll_zigbee_address(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling ZigBee address")
 
-                # Callbacks are run outside of the state update lock
-                if run_callbacks and state_changed:
-                    self._run_state_changed_callbacks()
+                if self._light_name:
+                    prev = self.name_in_app
+                    if prev != await self.poll_light_name(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling light name")
 
-        except asyncio.TimeoutError as e:
-            exceptions.append(e)
-            _LOGGER.error(
-                f"""Timed out waiting for poll_state lock for"""
-                f""" "{self.name}". Error "{e}"."""
-            )
-        except Exception as e:
-            exceptions.append(e)
-            _LOGGER.error(
-                f"""Exception polling state of light"""
-                f""" "{self.name}". Error "{e}"."""
-            )
+                if self.supports_on_off:
+                    prev = self.power_state
+                    if prev != await self.poll_power_state(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling power state")
 
-        return state_changed, exceptions
+                if self.supports_brightness:
+                    prev = self.brightness
+                    if prev != await self.poll_brightness(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling brightness")
+
+                if self.supports_colour_temp:
+                    prev = self.colour_temp
+                    if prev != await self.poll_colour_temp(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling colour temp")
+
+                if self.supports_colour_xy:
+                    prev = self.colour_xy
+                    if prev != await self.poll_colour_xy(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling XY colour")
+
+                # Print it all out for debugging
+                _LOGGER.debug(
+                    f"""Data from light "{self.name}"\n"""
+                    f"""MAC address "{self.address}"\n"""
+                    f"""Name in Hue app: "{self.name_in_app}"\n"""
+                    f"""Manufacturer: "{self.manufacturer}"\n"""
+                    f"""Model: "{self.model}"\n"""
+                    f"""Firmware: "{self.firmware}"\n"""
+                    f"""ZigBee Address: "{self.zigbee_address}"\n"""
+                    f"""Power state: "{self.power_state}"\n"""
+                    f"""Brightness: "{self.brightness}"\n"""
+                    f"""Colour temp: "{self.colour_temp}"\n"""
+                    f"""Colour XY: "{self.colour_xy}"."""
+                )
+
+            # Callbacks are run outside of the state update lock
+            if run_callbacks and state_changed:
+                self._run_state_changed_callbacks()
+
+        return state_changed
 
     async def _read_gatt(
         self,
@@ -1011,22 +1037,22 @@ class HueBleLight(object):
         return self._ble_device.address
 
     @property
-    def manufacturer(self) -> str:
+    def manufacturer(self) -> str | None:
         """Manufacturer of the light."""
         return self._manufacturer
 
     @property
-    def model(self) -> str:
+    def model(self) -> str | None:
         """Model of the light."""
         return self._model
 
     @property
-    def firmware(self) -> str:
+    def firmware(self) -> str | None:
         """Firmware of the light."""
         return self._fw
 
     @property
-    def zigbee_address(self) -> str:
+    def zigbee_address(self) -> str | None:
         """Zigbee address of the light."""
         return self._zigbee_address
 
@@ -1038,7 +1064,7 @@ class HueBleLight(object):
         return self._ble_device.name
 
     @property
-    def name_in_app(self) -> str:
+    def name_in_app(self) -> str | None:
         """Name of light in Hue app.
         Should not but may differ from the name (bluetooth) property.
         """
