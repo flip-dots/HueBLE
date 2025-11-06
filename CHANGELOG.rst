@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`1.0.8`_ (2025-11-06)
+=====================
+
+Added
+-----
+
+* Add GitHub Actions workflow to publish releases
+
 `1.0.7`_ (2025-05-11)
 =====================
 
