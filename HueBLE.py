@@ -378,18 +378,15 @@ class HueBleLight(object):
                                 max_attempts=max_attempts,
                                 disconnected_callback=self._disconnect_callback,
                             )
-
                             _LOGGER.debug(
                                 f"""Using client "{self._client}" with """
                                 f"""backend "{self._client._backend}"."""
                             )
-                            if _LOGGER.isEnabledFor(logging.DEBUG):
-                                await self.print_services()
 
                             # If we failed to connect
                             if not self._client.is_connected:
                                 _LOGGER.error(
-                                    f"""Failed to connect to "{self.name}"."""
+                                    f"""Failed to connect to "{self.name}". Device did not respond."""
                                 )
                                 return False
 
@@ -403,10 +400,12 @@ class HueBleLight(object):
                                 f""" to "{self.name}"."""
                             )
 
-                            # If we cant find out what the light supports
-                            # then we have failed
-                            if not await self._determine_services():
-                                return False
+                            try:
+                                await self._determine_services()
+                            except Exception as e:
+                                _LOGGER.error(
+                                    f"""Failed to determine what services the light "{self.name}" offers. E: "{e}"."""
+                                )
 
                             # If we failed to subscribe to the lights state updates
                             if not await self._subscribe_to_light():
@@ -484,114 +483,84 @@ class HueBleLight(object):
                 f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
             ) from e
 
-    async def _determine_services(self) -> bool:
+    async def _determine_services(self):
         """Determines what features the light supports.
         The data may then be retrieved via the supports properties.
-        Returns True if successful and False on error.
+        :raises BleakError: If unable to determine services offered.
         """
 
-        try:
-            services = self._client.services
-            for id, service in services.services.items():
+        # If debug mode enabled print all services offered by light as well as the readable values
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            await self.print_services()
 
-                _LOGGER.debug(
-                    f"Service: {service}, " f"description: {service.description}"
-                )
-
-                if service.characteristics is None:
-                    continue
-
-                for char in service.characteristics:
-                    _LOGGER.debug(
-                        f"Characteristic: {char}, "
-                        f"description: {char.description}, "
-                        f"descriptors: {char.descriptors}"
-                    )
-
-            if services.get_characteristic(UUID_MANUFACTURER):
-                self._manufacturer = DEFAULT_METADATA_STRING
-            else:
-                _LOGGER.warning(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support polling the manufacturer metadata."""
-                )
-
-            if services.get_characteristic(UUID_MODEL):
-                self._model = DEFAULT_METADATA_STRING
-            else:
-                _LOGGER.warning(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support polling the model metadata."""
-                )
-
-            if services.get_characteristic(UUID_FW_VERSION):
-                self._fw = DEFAULT_METADATA_STRING
-            else:
-                _LOGGER.warning(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support polling the firmware version metadata."""
-                )
-
-            if services.get_characteristic(UUID_ZIGBEE_ADDRESS):
-                self._zigbee_address = DEFAULT_METADATA_STRING
-            else:
-                _LOGGER.warning(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support polling the ZigBee address metadata."""
-                )
-
-            if services.get_characteristic(UUID_NAME):
-                self._light_name = DEFAULT_METADATA_STRING
-            else:
-                _LOGGER.warning(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support polling the light name."""
-                )
-
-            if services.get_characteristic(UUID_POWER) is not None:
-                self._power_on = False
-            else:
-                _LOGGER.error(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support turning on and off."""
-                )
-                self._power_on = None
-
-            if services.get_characteristic(UUID_BRIGHTNESS) is not None:
-                self._brightness = 0
-            else:
-                _LOGGER.debug(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support changing the brightness."""
-                )
-                self._brightness = None
-
-            if services.get_characteristic(UUID_TEMPERATURE) is not None:
-                self._colour_temp = 0
-            else:
-                _LOGGER.debug(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support changing the colour temp."""
-                )
-                self._colour_temp = None
-
-            if services.get_characteristic(UUID_XY_COLOUR) is not None:
-                self._colour_xy = (0.0, 0.0)
-            else:
-                _LOGGER.debug(
-                    f"""Light "{self.name}" does not appear to """
-                    f"""support changing the XY colour."""
-                )
-                self._colour_xy = None
-
-            return True
-
-        except BleakError:
-            _LOGGER.error(
-                f"""Unable to determine what features light"""
-                f""" "{self.name}" supports."""
+        # Determine available services
+        if self._client.services.get_characteristic(UUID_MANUFACTURER):
+            self._manufacturer = DEFAULT_METADATA_STRING
+        else:
+            _LOGGER.warning(
+                f"""Light "{self.name}" does not appear to """
+                f"""support polling the manufacturer metadata."""
             )
-            return False
+        if self._client.services.get_characteristic(UUID_MODEL):
+            self._model = DEFAULT_METADATA_STRING
+        else:
+            _LOGGER.warning(
+                f"""Light "{self.name}" does not appear to """
+                f"""support polling the model metadata."""
+            )
+        if self._client.services.get_characteristic(UUID_FW_VERSION):
+            self._fw = DEFAULT_METADATA_STRING
+        else:
+            _LOGGER.warning(
+                f"""Light "{self.name}" does not appear to """
+                f"""support polling the firmware version metadata."""
+            )
+        if self._client.services.get_characteristic(UUID_ZIGBEE_ADDRESS):
+            self._zigbee_address = DEFAULT_METADATA_STRING
+        else:
+            _LOGGER.warning(
+                f"""Light "{self.name}" does not appear to """
+                f"""support polling the ZigBee address metadata."""
+            )
+        if self._client.services.get_characteristic(UUID_NAME):
+            self._light_name = DEFAULT_METADATA_STRING
+        else:
+            _LOGGER.warning(
+                f"""Light "{self.name}" does not appear to """
+                f"""support polling the light name."""
+            )
+        if self._client.services.get_characteristic(UUID_POWER) is not None:
+            self._power_on = False
+        else:
+            _LOGGER.error(
+                f"""Light "{self.name}" does not appear to """
+                f"""support turning on and off."""
+            )
+            self._power_on = None
+        if self._client.services.get_characteristic(UUID_BRIGHTNESS) is not None:
+            self._brightness = 0
+        else:
+            _LOGGER.debug(
+                f"""Light "{self.name}" does not appear to """
+                f"""support changing the brightness."""
+            )
+            self._brightness = None
+        if self._client.services.get_characteristic(UUID_TEMPERATURE) is not None:
+            self._colour_temp = 0
+        else:
+            _LOGGER.debug(
+                f"""Light "{self.name}" does not appear to """
+                f"""support changing the colour temp."""
+            )
+            self._colour_temp = None
+        if self._client.services.get_characteristic(UUID_XY_COLOUR) is not None:
+            self._colour_xy = (0.0, 0.0)
+        else:
+            _LOGGER.debug(
+                f"""Light "{self.name}" does not appear to """
+                f"""support changing the XY colour."""
+            )
+            self._colour_xy = None
 
     async def disconnect(self) -> None:
         """Disconnects the program from the light.
