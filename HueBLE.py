@@ -83,6 +83,10 @@ DEFAULT_PAIR_DELAY = 5
 #: Default max time before a call to poll state times out.
 DEFAULT_POLL_STATE_TIMEOUT = 45
 
+#: Default of if callbacks should be executed on a call to poll_state
+#: where the state changed.
+DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED = True
+
 #: Default max time before a single read attempt to the light times out and it
 #: will try again. This must be large enough to allow for a connection attempt
 #: if the light is not already connected.
@@ -599,7 +603,9 @@ class HueBleLight(object):
         self._client = None
 
     async def poll_state(
-        self, timeout=DEFAULT_POLL_STATE_TIMEOUT, run_callbacks=True
+        self,
+        timeout=DEFAULT_POLL_STATE_TIMEOUT,
+        run_callbacks_if_changed=DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED,
     ) -> bool:
         """Updates the local state with values from the light using polling.
         This will only populate the fields that the light supports (i.e it
@@ -703,7 +709,7 @@ class HueBleLight(object):
                 )
 
             # Callbacks are run outside of the state update lock
-            if run_callbacks and state_changed:
+            if run_callbacks_if_changed and state_changed:
                 self._run_state_changed_callbacks()
 
         return state_changed
