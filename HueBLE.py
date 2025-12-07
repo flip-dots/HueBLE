@@ -225,79 +225,68 @@ class HueBleLight(object):
         await asyncio.sleep(reconnect_delay)
         await self.connect()
 
-    async def _subscribe_to_light(self) -> bool:
+    async def _subscribe_to_light(self) -> None:
         """Subscribes to the state of the light.
         Automatically called on connect.
-        Returns true if succeeded.
+        :raises Exception: If unable to subscribe to supported features.
         """
 
-        try:
+        # If turning off an on is supported :|
+        if self.supports_on_off:
 
-            # If turning off an on is supported :|
-            if self.supports_on_off:
+            def report(cHandle: int, data: bytearray) -> None:
+                self._power_on = bool(data[0])
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" power state of ({self.power_state})"""
+                )
+                self._run_state_changed_callbacks()
 
-                def report(cHandle: int, data: bytearray) -> None:
-                    self._power_on = bool(data[0])
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" power state of ({self.power_state})"""
-                    )
-                    self._run_state_changed_callbacks()
+            _LOGGER.debug("Subscribing to power state UUID")
+            await self._client.start_notify(UUID_POWER, report)
 
-                _LOGGER.debug("Subscribing to power state UUID")
-                await self._client.start_notify(UUID_POWER, report)
+        # If brightness is supported
+        if self.supports_brightness:
 
-            # If brightness is supported
-            if self.supports_brightness:
+            def report(cHandle: int, data: bytearray) -> None:
+                self._brightness = data[0]
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" brightness state of ({self.brightness})"""
+                )
+                self._run_state_changed_callbacks()
 
-                def report(cHandle: int, data: bytearray) -> None:
-                    self._brightness = data[0]
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" brightness state of ({self.brightness})"""
-                    )
-                    self._run_state_changed_callbacks()
+            _LOGGER.debug("Subscribing to brightness UUID")
+            await self._client.start_notify(UUID_BRIGHTNESS, report)
 
-                _LOGGER.debug("Subscribing to brightness UUID")
-                await self._client.start_notify(UUID_BRIGHTNESS, report)
+        # If colour temperature is supported
+        if self.supports_colour_temp:
 
-            # If colour temperature is supported
-            if self.supports_colour_temp:
+            def report(cHandle: int, data: bytearray) -> None:
+                self._colour_temp = int.from_bytes(data, "little")
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" colour temp state of ({self.colour_temp})"""
+                )
+                self._run_state_changed_callbacks()
 
-                def report(cHandle: int, data: bytearray) -> None:
-                    self._colour_temp = int.from_bytes(data, "little")
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" colour temp state of ({self.colour_temp})"""
-                    )
-                    self._run_state_changed_callbacks()
+            _LOGGER.debug("Subscribing to colour temperature UUID")
+            await self._client.start_notify(UUID_TEMPERATURE, report)
 
-                _LOGGER.debug("Subscribing to colour temperature UUID")
-                await self._client.start_notify(UUID_TEMPERATURE, report)
+        # If XY colour is supported
+        if self.supports_colour_xy:
 
-            # If XY colour is supported
-            if self.supports_colour_xy:
+            def report(cHandle: int, data: bytearray) -> None:
+                x, y = unpack("<HH", data)
+                self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" XY colour state of ({self.colour_xy})"""
+                )
+                self._run_state_changed_callbacks()
 
-                def report(cHandle: int, data: bytearray) -> None:
-                    x, y = unpack("<HH", data)
-                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" XY colour state of ({self.colour_xy})"""
-                    )
-                    self._run_state_changed_callbacks()
-
-                _LOGGER.debug("Subscribing to XY colour UUID")
-                await self._client.start_notify(UUID_XY_COLOUR, report)
-
-            return True
-
-        except Exception as e:
-            _LOGGER.error(
-                f"""Failed to subscribe to services of light "{self.name}"."""
-                f""" Error: "{e}"."""
-            )
-            return False
+            _LOGGER.debug("Subscribing to XY colour UUID")
+            await self._client.start_notify(UUID_XY_COLOUR, report)
 
     async def connect(
         self,
@@ -371,51 +360,60 @@ class HueBleLight(object):
                         async with asyncio.timeout(connection_timeout):
 
                             # Make a fresh bleak client and connect
-                            self._client = await establish_connection(
-                                BleakClient,
-                                device=self._ble_device,
-                                name=self.address,
-                                max_attempts=max_attempts,
-                                disconnected_callback=self._disconnect_callback,
-                            )
-                            _LOGGER.debug(
-                                f"""Using client "{self._client}" with """
-                                f"""backend "{self._client._backend}"."""
-                            )
-
-                            # If we failed to connect
-                            if not self._client.is_connected:
-                                _LOGGER.error(
-                                    f"""Failed to connect to "{self.name}". Device did not respond."""
+                            try:
+                                self._client = await establish_connection(
+                                    BleakClient,
+                                    device=self._ble_device,
+                                    name=self.address,
+                                    max_attempts=max_attempts,
+                                    disconnected_callback=self._disconnect_callback,
                                 )
-                                return False
+                                _LOGGER.debug(
+                                    f"""Using client "{self._client}" with """
+                                    f"""backend "{self._client._backend}"."""
+                                )
+
+                                # If we failed to connect
+                                if not self._client.is_connected:
+                                    raise Exception(
+                                        f"""Not connected to "{self.name}"."""
+                                    )
+
+                            except Exception as e:
+                                raise Exception(
+                                    f"""Failed to make an initial connection to the light "{self.name}". E: "{e}"."""
+                                ) from e
 
                             # Attempt to pair if not paired
-                            await self.pair()
-
-                            # If we have reached here that means connecting and
-                            # pairing was (probably) successful
-                            _LOGGER.debug(
-                                f"""Successfully connected and authenticated"""
-                                f""" to "{self.name}"."""
-                            )
-
                             try:
+                                _LOGGER.debug("Attempting to pair to the light...")
+                                await self.pair()
+                            except Exception as e:
+                                raise Exception(
+                                    f"""Failed to pair to the light "{self.name}". E: "{e}"."""
+                                ) from e
+
+                            # Determine what features the light supports
+                            try:
+                                _LOGGER.debug(
+                                    "Determining services offered by the light..."
+                                )
                                 await self._determine_services()
                             except Exception as e:
-                                _LOGGER.error(
+                                raise Exception(
                                     f"""Failed to determine what services the light "{self.name}" offers. E: "{e}"."""
-                                )
+                                ) from e
 
-                            # If we failed to subscribe to the lights state updates
-                            if not await self._subscribe_to_light():
-
+                            # Subscribe to state updates from the features the light supports
+                            try:
                                 _LOGGER.debug(
-                                    f""" Failed to subscribe to services"""
-                                    f""" offered by light "{self.name}"."""
+                                    "Subscribing to services offered by the light..."
                                 )
-
-                                return False
+                                await self._subscribe_to_light()
+                            except Exception as e:
+                                raise Exception(
+                                    f"""Failed to subscribe to services offered by the light "{self.name}". E: "{e}"."""
+                                ) from e
 
                             # If the connection was successful, and we are paired,
                             # authenticated, and subscribed, then we no longer
@@ -424,6 +422,14 @@ class HueBleLight(object):
 
                             # We also reset the attempts counter since we succeeded
                             self._connection_attempts = 0
+
+                            # If we have reached here that means connecting and
+                            # pairing was (probably) successful since we have now queried
+                            # values and subscribed to updates
+                            _LOGGER.debug(
+                                f"""Successfully connected and authenticated"""
+                                f""" to "{self.name}"."""
+                            )
 
                             # We then exit the timeout context, run callbacks if required,
                             # since we have achieved a connection, a state change, then
@@ -483,7 +489,7 @@ class HueBleLight(object):
                 f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
             ) from e
 
-    async def _determine_services(self):
+    async def _determine_services(self) -> None:
         """Determines what features the light supports.
         The data may then be retrieved via the supports properties.
         :raises BleakError: If unable to determine services offered.
