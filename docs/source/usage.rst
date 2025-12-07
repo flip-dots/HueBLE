@@ -101,7 +101,7 @@ Pairing
 
 On connection to a light this module will attempt to pair to the light
 if it is not already paired. To pair with a light it must be in pairing mode,
-this can be activated in the Philips Hue app.
+this can be activated in the Philips Hue app. Resetting the light also puts it in pairing mode.
 
 ``Settings -> Voice Assistants -> 
 Amazon Alexa or Google Home -> Make Discoverable``
