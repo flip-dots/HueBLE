@@ -436,11 +436,9 @@ class HueBleLight(object):
                             # return true
 
                     except asyncio.TimeoutError as e:
-                        _LOGGER.error(
-                            f"""Timed out attempting to connect to"""
-                            f""" "{self.name}". Error "{e}"."""
-                        )
-                        return False
+                        raise Exception(
+                            f"""Timed out attempting to connect to "{self.name}"."""
+                        ) from e
 
         except asyncio.TimeoutError as e:
             _LOGGER.error(
