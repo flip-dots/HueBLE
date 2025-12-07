@@ -187,7 +187,7 @@ class HueBleLight(object):
             _LOGGER.info(f"""Received expected disconnect from "{client}".""")
             return
 
-        _LOGGER.warn(f"""Unexpected disconnect from "{client}".""")
+        _LOGGER.warning(f"""Unexpected disconnect from "{client}".""")
 
         # Run callbacks if we did not expect the disconnect
         self._run_state_changed_callbacks()
@@ -201,7 +201,7 @@ class HueBleLight(object):
             asyncio.create_task(self.reconnect())
 
         else:
-            _LOGGER.warn(
+            _LOGGER.warning(
                 f"""Maximum re-connect attempts to "{client}". exceeded."""
                 """ Will NOT attempt reconnect."""
             )
