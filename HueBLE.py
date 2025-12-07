@@ -723,6 +723,7 @@ class HueBleLight(object):
         """Reads a GATT attribute from the light.
         If there is an error an exception will be thrown.
         """
+        last_error = None
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
@@ -734,10 +735,11 @@ class HueBleLight(object):
                     f"""Failed to read value from "{self.name}" on attempt"""
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
+                last_error = e
         raise Exception(
             f"""Unable to read from "{self.name}" after"""
             f""" {max_attempts} attempts"""
-        )
+        ) from last_error
 
     async def _write_gatt(
         self,
@@ -750,6 +752,7 @@ class HueBleLight(object):
         Will attempt to connect if not already connected.
         Will throw an exception on error.
         """
+        last_error = None
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
@@ -763,10 +766,11 @@ class HueBleLight(object):
                     f"""Failed to write value to "{self.name}" on attempt"""
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
+                last_error = e
         raise Exception(
             f"""Unable to write to "{self.name}" after"""
             f""" {max_attempts} attempts"""
-        )
+        ) from last_error
 
     async def print_services(self) -> None:
         """
