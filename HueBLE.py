@@ -163,9 +163,14 @@ class HueBleLight(object):
         self._state_changed_callbacks.remove(function)
 
     def _run_state_changed_callbacks(self) -> None:
-        """Executes all registered callbacks for a state change."""
+        """Executes all registered callbacks for a state change. Exceptions are caught and re-raised."""
         for function in self._state_changed_callbacks:
-            function()
+            try:
+                function()
+            except Exception as e:
+                raise Exception(
+                    f"""Exception executing state changed callback on "{self.name}". Function: "{function.__name__}". E: "{e}"."""
+                ) from e
 
     def _disconnect_callback(self, client: BaseBleakClient) -> None:
         """Private method. Updates program state and will attempt reconnect
@@ -294,7 +299,7 @@ class HueBleLight(object):
         connection_timeout: int = DEFAULT_CONNECTION_TIMEOUT,
         wait_timeout: int = DEFAULT_CONNECTION_WAIT_TIMEOUT,
         run_callbacks: bool = DEFAULT_ON_CONNECT_RUN_CALLBACKS,
-    ) -> bool:
+    ) -> None:
         """Connects to the light using bluetooth. This can be manually called
         but it will also be run automatically if the light is not
         connected when the light is polled or set.
@@ -314,12 +319,14 @@ class HueBleLight(object):
 
         Registered callbacks will be run if a connection is achieved
         unless disabled.
+
+        This function raises an exception on failure.
         """
 
         # If we are already connected then do nothing
         if self.connected:
             _LOGGER.debug(f"""Already connected to "{self.name}" Nothing to do here.""")
-            return True
+            return
 
         # Print warning that the connection is already in progress by
         # another method.
@@ -433,7 +440,7 @@ class HueBleLight(object):
 
                             # We then exit the timeout context, run callbacks if required,
                             # since we have achieved a connection, a state change, then
-                            # return true
+                            # return
 
                     except asyncio.TimeoutError as e:
                         raise Exception(
@@ -441,21 +448,17 @@ class HueBleLight(object):
                         ) from e
 
         except asyncio.TimeoutError as e:
-            _LOGGER.error(
-                f"""Timed out waiting for connection lock for"""
-                f""" "{self.name}". Error "{e}"."""
-            )
-            return False
+            raise Exception(
+                f"""Timed out waiting for connection lock for "{self.name}"."""
+            ) from e
+
         except Exception as e:
-            _LOGGER.error(
-                f"""Exception connecting to light""" f""" "{self.name}". Error "{e}"."""
-            )
-            return False
+            raise Exception(
+                f"""Exception connecting to light "{self.name}". E: "{e}"."""
+            ) from e
 
-        if self.connected and run_callbacks:
+        if run_callbacks:
             self._run_state_changed_callbacks()
-
-        return True
 
     async def pair(self):
         """Pair to light if not paired and raise exception on failure."""
@@ -710,9 +713,7 @@ class HueBleLight(object):
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
-                    if not self.connected:
-                        if not await self.connect():
-                            raise Exception("Cannot connect!")
+                    await self.connect()
                     return await self._client.read_gatt_char(property)
 
             except Exception as e:
@@ -739,9 +740,7 @@ class HueBleLight(object):
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
-                    if not self.connected:
-                        if not await self.connect():
-                            raise Exception("Cannot connect!")
+                    await self.connect()
                     return await self._client.write_gatt_char(
                         property, data, response=True
                     )
