@@ -7,6 +7,32 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.0.0`_ (2025-12-07)
+=====================
+
+Added
+-----
+
+* Add note to docs about alternate pairing method
+
+Changed
+-------
+
+* Values default to ``None`` if support for them is unknown and the relevant default if they are supported.
+* ``pair`` now raises Exceptions instead of returning a boolean.
+* ``poll_state`` now only returns if the state changed rather than that and a list of errors.
+* Increase delay between pairing and checking the result.
+* Exceptions in callbacks are now re-raised with added context.
+* ``connect`` now raises Exceptions instead of returning a boolean.
+
+Fixed
+-----
+
+* Fix polling of unsupported values in ``poll_state``.
+* Fix use of deprecated ``logger.warn``.
+* Fix exception when connecting to a light on MacOS.
+* Fix printing of services on light in debug mode.
+
 `1.0.8`_ (2025-11-06)
 =====================
 
@@ -110,6 +136,9 @@ Fixed
 * HueBLE created.
 
 
+.. _2.0.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.0.0
+.. _1.0.8: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.8
+.. _1.0.7: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.7
 .. _1.0.6: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.6
 .. _1.0.5: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.5
 .. _1.0.4: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.4
