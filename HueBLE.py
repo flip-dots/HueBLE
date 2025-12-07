@@ -468,6 +468,13 @@ class HueBleLight(object):
             _LOGGER.debug(f"""System is already paired to "{self.name}".""")
             return
 
+        # If mac return as pairing is not supported on MacOS
+        if platform.system() == "Darwin":
+            _LOGGER.warning(
+                "Pairing is not supported on MacOS! You must pair manually!"
+            )
+            return
+
         # Else attempt to pair with a timeout
         try:
             _LOGGER.debug(f"""Attempting to pair to "{self.name}".""")
