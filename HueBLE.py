@@ -74,8 +74,11 @@ DEFAULT_CONNECTION_WAIT_TIMEOUT = 120
 #: callbacks to be run.
 DEFAULT_ON_CONNECT_RUN_CALLBACKS = True
 
+#: Default time to wait for a pairing request to complete.
+DEFAULT_PAIR_TIMEOUT = 15
+
 #: Default time to wait after pairing to check if it was successful.
-DEFAULT_PAIR_DELAY = 1
+DEFAULT_PAIR_DELAY = 5
 
 #: Default max time before a call to poll state times out.
 DEFAULT_POLL_STATE_TIMEOUT = 45
@@ -390,32 +393,8 @@ class HueBleLight(object):
                                 )
                                 return False
 
-                            # Check if the light is paired and trusted
-                            # If we are not using a Linux system then we don't
-                            # know if we are paired with the device.
-                            # We assume we are not paired and attempt to pair.
-                            authenticated = self.authenticated
-
-                            # If we dont know if we are paired and trusted then
-                            # pair and assume it worked (non Linux systems)
-                            if authenticated is None:
-
-                                # Pair. If not successful return false
-                                if not await self.pair():
-                                    _LOGGER.error(
-                                        f"""Failed paring to "{self.name}"."""
-                                    )
-                                    return False
-
-                            # If we are not paired then pair
-                            elif not authenticated:
-
-                                # Pair. If not successful return false
-                                if not await self.pair():
-                                    _LOGGER.error(
-                                        f"""Failed paring to "{self.name}"."""
-                                    )
-                                    return False
+                            # Attempt to pair if not paired
+                            await self.pair()
 
                             # If we have reached here that means connecting and
                             # pairing was (probably) successful
@@ -475,43 +454,35 @@ class HueBleLight(object):
 
         return True
 
-    async def pair(self) -> bool:
-        """Attempts to pair to the light and returns the result.
-        Return value defaults to true on non-Linux systems.
-        """
+    async def pair(self):
+        """Pair to light if not paired and raise exception on failure."""
 
-        _LOGGER.debug(f"""Attempting to pair to "{self.name}".""")
+        # If paired return
+        if self.authenticated is True:
+            _LOGGER.debug(f"""System is already paired to "{self.name}".""")
+            return
 
-        # If we are not connected then we cannot send a pair request
-        if not self.connected:
-            _LOGGER.error(f"""Not connected to "{self.name}", therefore cannot pair.""")
-            return False
-
+        # Else attempt to pair with a timeout
         try:
-            # Request pair using bleak
-            await self._client.pair()
-            # Wait a little
+            _LOGGER.debug(f"""Attempting to pair to "{self.name}".""")
+            async with asyncio.timeout(DEFAULT_PAIR_TIMEOUT):
+                await self._client.pair()
+
             await asyncio.sleep(DEFAULT_PAIR_DELAY)
+            if self.authenticated is False:
+                raise Exception(
+                    f"""Failed to pair to "{self.name}". System reports not paired after pair attempt!"""
+                )
 
-            # If we are still connected
-            if self.connected:
+        except asyncio.TimeoutError as e:
+            raise Exception(
+                f"""Timed out attempting to pair to "{self.name}"."""
+            ) from e
 
-                authenticated = self.authenticated
-                # If we do not know the result of pairing due to
-                # to the platform then assume all is well
-                if authenticated is None:
-                    return True
-                else:
-                    return authenticated
-
-        except asyncio.TimeoutError:
-            _LOGGER.error(f"""Timed out attempting to pair to "{self.name}".""")
-        except BleakError as err:
-            _LOGGER.error(
-                f"""Unexpected error attempting to pair to "{self.name}"."""
-                f""" Error message "{err}" """
-            )
-        return False
+        except BleakError as e:
+            raise Exception(
+                f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
+            ) from e
 
     async def _determine_services(self) -> bool:
         """Determines what features the light supports.
@@ -975,7 +946,7 @@ class HueBleLight(object):
 
     @property
     def authenticated(self) -> bool | None:
-        """Returns true if the light is paired and trusted.
+        """Returns true if the light is paired.
         This only works on Linux. Returns None if unable
         to determine if device is authenticated.
         """
@@ -987,6 +958,9 @@ class HueBleLight(object):
         # and get a permission error. Im probably missing something
         # so I should probably take another look in the future.
         if platform.system() != "Linux":
+            _LOGGER.info(
+                f"""Unable to determine if paired to "{self.name}" due to the platform!"""
+            )
             return None
 
         # Get Linux specific properties of our connection
@@ -995,24 +969,25 @@ class HueBleLight(object):
         # If the system does not have device properties then
         # it is unknown if we are authenticated to it
         if properties is None:
+            _LOGGER.info(
+                f"""Unable to determine if paired to "{self.name}" as that metadata was missing"""
+            )
             return None
 
-        # If we are paired and trusted by the light we are good
+        # If paired return True
         if properties.get("Paired") is True:
-            if properties.get("Trusted") is True:
-                return True
+            return True
 
-            else:
-                _LOGGER.error(
-                    f"""Not paired to "{self.name}". Device""" f""" not trusted."""
-                )
+        # If not paired return False
+        elif properties.get("Paired") is False:
+            return False
 
+        # If unknown return None
         else:
-            _LOGGER.error(
-                f"""Not paired to "{self.name}".""" f""" Device was not paired."""
+            _LOGGER.info(
+                f"""Unable to determine if paired to "{self.name}" as that section of the metadata was missing. Properties: {properties}" """
             )
-
-        return False
+            return None
 
     @property
     def available(self) -> bool:
