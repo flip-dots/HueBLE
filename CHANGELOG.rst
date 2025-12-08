@@ -7,6 +7,28 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.1.0`_ (2025-12-08)
+=====================
+
+Added
+-----
+
+* ``HueBleError``
+* ``ConnectionError``
+* ``InitialConnectionError``
+* ``PairingError``
+* ``ReadWriteError``
+* ``ServicesError``
+* ``CallbackError``
+
+Changed
+-------
+
+* Errors executing callbacks now raise ``CallbackError`` instead of ``Exception``.
+* Errors connecting to a light now raise ``ConnectionError`` instead of ``Exception``.
+* Errors pairing to a light now raise ``PairingError`` instead of ``Exception``.
+* Errors reading or writing to a light now raise ``ReadWriteError`` instead of ``Exception``.
+
 `2.0.0`_ (2025-12-07)
 =====================
 
@@ -136,6 +158,7 @@ Fixed
 * HueBLE created.
 
 
+.. _2.1.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.0
 .. _2.0.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.0.0
 .. _1.0.8: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.8
 .. _1.0.7: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.7

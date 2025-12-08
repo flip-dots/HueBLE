@@ -119,6 +119,62 @@ DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 _LOGGER = logging.getLogger(__name__)
 
 
+class HueBleError(Exception):
+    """
+    Base exception of HueBLE.
+    """
+
+    pass
+
+
+class ConnectionError(HueBleError):
+    """
+    Exception raised when connecting to a device fails.
+    """
+
+    pass
+
+
+class InitialConnectionError(HueBleError):
+    """
+    Exception raised when the initial pre-pair pre-communication connect call fails.
+    """
+
+    pass
+
+
+class PairingError(HueBleError):
+    """
+    Exception raised when pairing to a device fails.
+    """
+
+    pass
+
+
+class ReadWriteError(HueBleError):
+    """
+    Exception raised when reading or writing a GATT attribute fails.
+    """
+
+    pass
+
+
+class ServicesError(HueBleError):
+    """
+    Exception raised when service discovery/subscription fails.
+    """
+
+    pass
+
+
+class CallbackError(HueBleError):
+    """
+    Exception raised when a callback raises an error.
+    """
+
+    pass
+
+
 class HueBleLight(object):
     """Philips Hue BLE Light object."""
 
@@ -172,7 +228,7 @@ class HueBleLight(object):
             try:
                 function()
             except Exception as e:
-                raise Exception(
+                raise CallbackError(
                     f"""Exception executing state changed callback on "{self.name}". Function: "{function.__name__}". E: "{e}"."""
                 ) from e
 
@@ -324,7 +380,7 @@ class HueBleLight(object):
         Registered callbacks will be run if a connection is achieved
         unless disabled.
 
-        This function raises an exception on failure.
+        This function raises ConnectionError on failure.
         """
 
         # If we are already connected then do nothing
@@ -391,18 +447,13 @@ class HueBleLight(object):
                                     )
 
                             except Exception as e:
-                                raise Exception(
+                                raise InitialConnectionError(
                                     f"""Failed to make an initial connection to the light "{self.name}". E: "{e}"."""
                                 ) from e
 
                             # Attempt to pair if not paired
-                            try:
-                                _LOGGER.debug("Attempting to pair to the light...")
-                                await self.pair()
-                            except Exception as e:
-                                raise Exception(
-                                    f"""Failed to pair to the light "{self.name}". E: "{e}"."""
-                                ) from e
+                            _LOGGER.debug("Attempting to pair to the light...")
+                            await self.pair()
 
                             # Determine what features the light supports
                             try:
@@ -411,7 +462,7 @@ class HueBleLight(object):
                                 )
                                 await self._determine_services()
                             except Exception as e:
-                                raise Exception(
+                                raise ServicesError(
                                     f"""Failed to determine what services the light "{self.name}" offers. E: "{e}"."""
                                 ) from e
 
@@ -422,7 +473,7 @@ class HueBleLight(object):
                                 )
                                 await self._subscribe_to_light()
                             except Exception as e:
-                                raise Exception(
+                                raise ServicesError(
                                     f"""Failed to subscribe to services offered by the light "{self.name}". E: "{e}"."""
                                 ) from e
 
@@ -452,12 +503,12 @@ class HueBleLight(object):
                         ) from e
 
         except asyncio.TimeoutError as e:
-            raise Exception(
+            raise ConnectionError(
                 f"""Timed out waiting for connection lock for "{self.name}"."""
             ) from e
 
         except Exception as e:
-            raise Exception(
+            raise ConnectionError(
                 f"""Exception connecting to light "{self.name}". E: "{e}"."""
             ) from e
 
@@ -465,7 +516,7 @@ class HueBleLight(object):
             self._run_state_changed_callbacks()
 
     async def pair(self):
-        """Pair to light if not paired and raise exception on failure."""
+        """Pair to light if not paired and raise PairingError on failure."""
 
         # If paired return
         if self.authenticated is True:
@@ -492,12 +543,12 @@ class HueBleLight(object):
                 )
 
         except asyncio.TimeoutError as e:
-            raise Exception(
+            raise PairingError(
                 f"""Timed out attempting to pair to "{self.name}"."""
             ) from e
 
         except BleakError as e:
-            raise Exception(
+            raise PairingError(
                 f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
             ) from e
 
@@ -736,7 +787,7 @@ class HueBleLight(object):
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
                 last_error = e
-        raise Exception(
+        raise ReadWriteError(
             f"""Unable to read from "{self.name}" after"""
             f""" {max_attempts} attempts"""
         ) from last_error
@@ -767,7 +818,7 @@ class HueBleLight(object):
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
                 last_error = e
-        raise Exception(
+        raise ReadWriteError(
             f"""Unable to write to "{self.name}" after"""
             f""" {max_attempts} attempts"""
         ) from last_error

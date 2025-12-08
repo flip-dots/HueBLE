@@ -17,7 +17,7 @@ sys.path.insert(0, project_root)
 project = "HueBLE"
 copyright = "2025, Harvey Lelliott"
 author = "Harvey Lelliott"
-release = "2.0.0"
+release = "2.1.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
