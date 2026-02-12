@@ -393,7 +393,6 @@ class HueBleLight(object):
                     )
                 elif len(data) == 12:
                     # it is color and bightness
-                    print(data, len(data))
                     brightness, x, y = unpack("<xxxxxBxxHH", data)
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
@@ -1066,7 +1065,6 @@ class HueBleLight(object):
                 self._effect_speed = speed
         elif len(buf) == 12:
             # it is color and bightness
-            print(buf, len(buf))
             brightness, x, y = unpack("<xxxxxBxxHH", buf)
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF

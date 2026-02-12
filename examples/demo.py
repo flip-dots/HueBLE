@@ -119,7 +119,7 @@ async def main():
                         print("Possible Effects:")
                         for effect in EffectType:
                             print(f"({effect.name}: {effect.value})")
-                        print("Enter id of effect")16
+                        print("Enter id of effect")
                         effect_id = int(await ainput())
                         print("Enter speed of effect (0 - 255)")
                         effect_speed = int(await ainput())
