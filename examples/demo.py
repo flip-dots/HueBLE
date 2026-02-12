@@ -6,7 +6,7 @@ import sys
 # Allows for reading and writing to the console at the same time
 # pip3 install aioconsole
 from aioconsole import ainput
-from HueBLE import HueBleLight, discover_lights
+from HueBLE import HueBleLight, discover_lights, EffectType
 
 
 # Ask if debug log is wanted
@@ -36,6 +36,7 @@ def light_state_callback():
     print(f"Is colour temp mode active: {light.colour_temp_mode}")
     print(f"Light colour temperature: {light.colour_temp}")
     print(f"Light XY colour: {light.colour_xy}")
+    print(f"Light Effect/Speed: {light.effect}")
     print("==== END OF STATE CHANGE REPORT ====")
 
 
@@ -73,8 +74,9 @@ async def main():
                 "3. Set brightness\n"
                 "4. Set colour temp\n"
                 "5. Set XY colour\n"
-                "6. View info\n"
-                "7. Exit"
+                "6. Set Effect\n"
+                "7. View info\n"
+                "8. Exit"
             )
 
             action = int(await ainput("> ")) - 1
@@ -108,8 +110,24 @@ async def main():
                         print("Enter Y value of color (0.0-1.0)")
                         y = float(await ainput())
                         await light.set_colour_xy(x, y)
-                    # Print all light metadata
+                    # Set Effect
                     case 5:
+                        print("Enter X value of color (0.0-1.0)")
+                        x = float(await ainput())
+                        print("Enter Y value of color (0.0-1.0)")
+                        y = float(await ainput())
+                        print("Possible Effects:")
+                        for effect in EffectType:
+                            print(f"({effect.name}: {effect.value})")
+                        print("Enter id of effect")16
+                        effect_id = int(await ainput())
+                        print("Enter speed of effect (0 - 255)")
+                        effect_speed = int(await ainput())
+                        print("Enter brightness (0 - 255)")
+                        brightness = int(await ainput())
+                        await light.set_effect(x, y, brightness, EffectType(effect_id), effect_speed)
+                    # Print all light metadata
+                    case 6:
                         # Poll all values from the light
                         await light.poll_state()
                         print(f"Light name: {light.name}")
@@ -120,6 +138,7 @@ async def main():
                         print(f"Supports brightness:" f" {light.supports_brightness}")
                         print(f"Supports colour temp:" f" {light.supports_colour_temp}")
                         print(f"Supports XY color: {light.supports_colour_xy}")
+                        print(f"Supports Effects: {light.supports_effects}")
                         print(f"Light firmware: {light.firmware}")
                         print(f"Light Zigbee address: {light.zigbee_address}")
                         print(f"Light power state: {light.power_state}")
@@ -131,8 +150,9 @@ async def main():
                         print(f"Light minimum mireds: {light.minimum_mireds}")
                         print(f"Light maximum mireds: {light.maximum_mireds}")
                         print(f"Light color XY: {light.colour_xy}")
+                        print(f"Light effects: {light.effect}")
 
-                    case 6:
+                    case 7:
                         break
 
             # Warn about pairing errors.
