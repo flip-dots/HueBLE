@@ -136,6 +136,15 @@ class EffectType(Enum):
     SUNBEAM = 0x10
     ENCHANT = 0x11
 
+# Commands (hex string) for the Effect Characteristic endpoint containing one byte id and one byte data length
+COMMANDS = {
+    "onoff" : "0101",
+    "brightness" : "0201",
+    "temperature" : "0302",
+    "colorxy" : "0404",
+    "effect" : "0601",
+    "effect_speed" : "0801"
+}
 
 class HueBleError(Exception):
     """
@@ -1110,9 +1119,17 @@ class HueBleLight(object):
     async def set_effect(self, x: float, y: float, brightness: int, effect: EffectType, effect_speed: int):
         """Sets XY color, brightness, effect and effect speed."""
         if effect != EffectType.NONE:
-            buf = pack("<5sB2sHH2sB2sB", bytes.fromhex("0101010201") ,max(min(brightness, 254), 1), bytes.fromhex("0404"), int(x * 0xFFFF), int(y * 0xFFFF), bytes.fromhex("0601"), max(min(effect.value, 254), 1), bytes.fromhex("0801"), max(min(effect_speed, 254), 1))
+            buf = pack("<2sB2sB2sHH2sB2sB", 
+                bytes.fromhex(COMMANDS["onoff"]), 0x1, 
+                bytes.fromhex(COMMANDS["brightness"]) ,max(min(brightness, 254), 1), 
+                bytes.fromhex(COMMANDS["colorxy"]), int(x * 0xFFFF), int(y * 0xFFFF), 
+                bytes.fromhex(COMMANDS["effect"]), max(min(effect.value, 254), 1), 
+                bytes.fromhex(COMMANDS["effect_speed"]), max(min(effect_speed, 254), 1))
         else:
-            buf = pack("<5sB2sHH", bytes.fromhex("0101010201"), max(min(brightness, 254), 1), bytes.fromhex("0404"), int(x * 0xFFFF), int(y * 0xFFFF))
+            buf = pack("<2sB2sB2sHH", 
+                bytes.fromhex(COMMANDS["onoff"]), 0x1,
+                bytes.fromhex(COMMANDS["brightness"]), max(min(brightness, 254), 1), 
+                bytes.fromhex(COMMANDS["colorxy"]), int(x * 0xFFFF), int(y * 0xFFFF))
         await self._write_gatt(UUID_EFFECTS, buf)
 
     @property
