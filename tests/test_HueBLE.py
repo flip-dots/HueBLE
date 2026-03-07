@@ -142,15 +142,25 @@ async def test_commands(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "supports, requests, expected_props",
+    "requests, expected_props",
     [
         pytest.param(
+            {},
             {
-                "on_off": False,
-                "brightness": False,
-                "colour_temp": False,
-                "colour_xy": False,
+                "manufacturer": None,
+                "model": None,
+                "firmware": None,
+                "zigbee_address": None,
+                "name_in_app": None,
+                "power_state": None,
+                "brightness": None,
+                "colour_temp": None,
+                "colour_xy": None,
+                "colour_temp_mode": None,
             },
+            id="none",
+        ),
+        pytest.param(
             {
                 HueBLE.UUID_MANUFACTURER: "Elliott".encode(),
                 HueBLE.UUID_MODEL: "ABCDEF".encode(),
@@ -172,15 +182,9 @@ async def test_commands(
                 "colour_xy": None,
                 "colour_temp_mode": None,
             },
-            id="none",
+            id="minimal",
         ),
         pytest.param(
-            {
-                "on_off": True,
-                "brightness": False,
-                "colour_temp": False,
-                "colour_xy": False,
-            },
             {
                 HueBLE.UUID_MANUFACTURER: "sigNifY".encode(),
                 HueBLE.UUID_MODEL: "Cloning Machine 2000".encode(),
@@ -196,16 +200,16 @@ async def test_commands(
                 "zigbee_address": "ff:ff",
                 "name_in_app": "Mauler Twins Base",
                 "power_state": True,
+                "brightness": None,
+                "colour_temp": None,
+                "minimum_mireds": None,
+                "maximum_mireds": None,
+                "colour_xy": None,
+                "colour_temp_mode": None,
             },
             id="power_only",
         ),
         pytest.param(
-            {
-                "on_off": True,
-                "brightness": True,
-                "colour_temp": False,
-                "colour_xy": False,
-            },
             {
                 HueBLE.UUID_MANUFACTURER: "Govee".encode(),
                 HueBLE.UUID_MODEL: "Hue Clone".encode(),
@@ -223,16 +227,15 @@ async def test_commands(
                 "name_in_app": "Totally a Hue light",
                 "power_state": True,
                 "brightness": 250,
+                "colour_temp": None,
+                "minimum_mireds": None,
+                "maximum_mireds": None,
+                "colour_xy": None,
+                "colour_temp_mode": None,
             },
             id="power_and_brightness",
         ),
         pytest.param(
-            {
-                "on_off": True,
-                "brightness": True,
-                "colour_temp": True,
-                "colour_xy": False,
-            },
             {
                 HueBLE.UUID_MANUFACTURER: "IKEA".encode(),
                 HueBLE.UUID_MODEL: "Slightly Better Hue Clone".encode(),
@@ -255,16 +258,11 @@ async def test_commands(
                 "minimum_mireds": HueBLE.MIN_MIREDS,
                 "maximum_mireds": HueBLE.MAX_MIREDS,
                 "colour_temp_mode": True,
+                "colour_xy": None,
             },
             id="colour_temperature",
         ),
         pytest.param(
-            {
-                "on_off": True,
-                "brightness": True,
-                "colour_temp": True,
-                "colour_xy": True,
-            },
             {
                 HueBLE.UUID_MANUFACTURER: "pHillIpS".encode(),
                 HueBLE.UUID_MODEL: "BIG LIGHT 3000".encode(),
@@ -295,7 +293,6 @@ async def test_commands(
     ],
 )
 async def test_poll_state(
-    supports: dict[str, bool],
     requests: dict[str, bytes],
     expected_props: dict[str, Any],
 ):
@@ -303,68 +300,65 @@ async def test_poll_state(
     Test polling all supported values from a device with
     different supported parameters.
 
-    :param supports: Map of supported features.
     :param requests: Map of UUIDs to what the mock light should return.
     :param expected_props: Map of light properties to expected values.
     """
 
     async with MockDevice() as mock_bluetooth:
-        with (
-            mock.patch(
-                "HueBLE.HueBleLight.supports_on_off",
-                new_callable=mock.PropertyMock,
-                return_value=supports["on_off"],
-            ),
-            mock.patch(
-                "HueBLE.HueBleLight.supports_brightness",
-                new_callable=mock.PropertyMock,
-                return_value=supports["brightness"],
-            ),
-            mock.patch(
-                "HueBLE.HueBleLight.supports_colour_temp",
-                new_callable=mock.PropertyMock,
-                return_value=supports["colour_temp"],
-            ),
-            mock.patch(
-                "HueBLE.HueBleLight.supports_colour_xy",
-                new_callable=mock.PropertyMock,
-                return_value=supports["colour_xy"],
-            ),
-        ):
 
-            device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+        def mock_get_characteristic(uuid: str) -> bytes:
+            """
+            Mocked client.services.get_characteristic for BleakClient.
 
-            callback_count = 0
+            If the UUID is in the requests dict (its expected) then we set it
+            to 00, i.e is supported, else its None, meaning that UUID is not
+            supported.
+            """
+            if uuid in requests:
+                return bytes.fromhex("00")
+            else:
+                return None
 
-            def my_callback(*args, **kwargs):
-                """We expect this to be called twice."""
-                nonlocal callback_count
-                callback_count = callback_count + 1
+        mock_bluetooth.set_side_effects(services_side_effect=mock_get_characteristic)
 
-            device.add_callback_on_state_changed(my_callback)
+        device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
 
-            # We expect the connection to succeed
-            await device.connect()
-            assert device.connected, "Expected connected to return True"
-            assert device.available, "Expected available to return True"
-            assert callback_count == 1, "Expected callback to be executed on connect"
+        callback_count = 0
 
-            # Expect all of the poll functions to be called inside poll_state
-            for key, value in requests.items():
-                mock_bluetooth.expect_ordered_read(key, value)
+        def my_callback(*args, **kwargs):
+            """We expect this to be called twice."""
+            nonlocal callback_count
+            callback_count = callback_count + 1
 
-            # Poll all the values and assert state changed
-            assert await device.poll_state(), "Expected state to have changed"
+        device.add_callback_on_state_changed(my_callback)
 
-            # Assert that all values were polled
-            mock_bluetooth.check_assertions()
+        # We expect the connection to succeed
+        await device.connect()
+        assert device.connected, "Expected connected to return True"
+        assert device.available, "Expected available to return True"
+        assert callback_count == 1, "Expected callback to be executed on connect"
 
-            # Assert that the light parsed all of the responses and the
-            # state has been correctly set
-            for key, value in expected_props.items():
+        # Expect all of the poll functions to be called inside poll_state
+        for key, value in requests.items():
+            mock_bluetooth.expect_ordered_read(key, value)
 
-                prop = getattr(device, key)
-                assert prop == value, f"Light state '{key}' is not the expected value!"
+        # Poll all the values and assert state changed
+        state_changed = await device.poll_state()
+
+        if requests:
+            assert state_changed, "Expected state to have changed"
+        else:
+            assert not state_changed, "Expected state to be the same"
+
+        # Assert that all values were polled
+        mock_bluetooth.check_assertions()
+
+        # Assert that the light parsed all of the responses and the
+        # state has been correctly set
+        for key, value in expected_props.items():
+
+            prop = getattr(device, key)
+            assert prop == value, f"Light state '{key}' is not the expected value!"
 
 
 @pytest.mark.asyncio
