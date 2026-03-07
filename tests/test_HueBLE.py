@@ -6,12 +6,13 @@
 
 import asyncio
 from struct import pack
-from typing import Any
+from typing import Any, Union
+from bleak import BLEDevice
 from unittest import mock
 
 import pytest
 import HueBLE
-from tests import MOCK_BLE_DEVICE
+from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice
 
 
@@ -341,6 +342,7 @@ async def test_poll_state(
             # We expect the connection to succeed
             await device.connect()
             assert device.connected, "Expected connected to return True"
+            assert device.available, "Expected available to return True"
             assert callback_count == 1, "Expected callback to be executed on connect"
 
             # Expect all of the poll functions to be called inside poll_state
@@ -391,12 +393,14 @@ async def test_automatic_retry():
         await device.connect()
         await asyncio.sleep(0.5)
         assert device.connected, "Expected connected to be True"
+        assert device.available, "Expected available to return True"
         assert callback_count == 1, "Expected callback to be run on first connection!"
 
         # We then trigger a disconnect from the device
         mock_bluetooth.disconnect()
         await asyncio.sleep(0.5)
         assert not device.connected, "Expected connected to be False"
+        assert not device.available, "Expected available to return False"
         assert callback_count == 2, "Expected callback to be run on disconnection!"
 
         # Set .is_connected to True
@@ -409,4 +413,129 @@ async def test_automatic_retry():
                 await asyncio.sleep(1)
 
         assert device.connected, "Expected connected to be True"
+        assert device.available, "Expected available to be True"
         assert callback_count == 3, "Expected callback to be run on reconnection!"
+
+
+@pytest.mark.asyncio
+async def test_disconnect():
+    """
+    Test the mock device is disconnected and no automatic
+    reconnection attempts are executed when disconnect is called.
+
+    We also expect no callbacks to be run and multiple calls
+    to disconnect to do nothing.
+    """
+
+    async with MockDevice() as mock_bluetooth:
+
+        device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+
+        # We expect the device to connect
+        await device.connect()
+        await asyncio.sleep(0.5)
+        assert device.connected, "Expected connected to be True"
+        assert device.available, "Expected available to be True"
+
+        def my_callback(*args, **kwargs):
+            """We expect this to never be called."""
+            assert False
+
+        device.add_callback_on_state_changed(my_callback)
+
+        # Fast forward any delays by 100x
+        sleep = asyncio.sleep
+        with mock.patch("asyncio.sleep", new=lambda d: sleep(d / 100)):
+
+            # We then trigger a disconnect from the device
+            await device.disconnect()
+            await asyncio.sleep(1)
+            assert not device.connected, "Expected connected to be False"
+            assert not device.available, "Expected available to be False"
+
+            # Assert that disconnect was called
+            mock_bluetooth._current_mock_bleak_client.disconnect.assert_called()
+
+            # Assert we are still disconnected
+            await asyncio.sleep(100)
+            assert not device.connected, "Expected connected to be False"
+            assert not device.available, "Expected available to be False"
+
+            # Assert that calling disconnect again does nothing
+            await device.disconnect()
+
+            await asyncio.sleep(100)
+            assert not device.connected, "Expected connected to be False"
+            assert not device.available, "Expected available to be False"
+
+            # Assert that triggering the disconnect from the bleak
+            # client does nothing
+            mock_bluetooth.disconnect()
+            await asyncio.sleep(100)
+            assert not device.connected, "Expected connected to be False"
+            assert not device.available, "Expected available to be False"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "platform, properties, value",
+    [
+        pytest.param(
+            "Windows",
+            None,
+            None,
+            id="windows",
+        ),
+        pytest.param(
+            "Darwin",
+            None,
+            None,
+            id="mac",
+        ),
+        pytest.param(
+            "",
+            None,
+            None,
+            id="unknown_platform",
+        ),
+        pytest.param(
+            "Linux",
+            None,
+            None,
+            id="linux_no_props",
+        ),
+        pytest.param(
+            "Linux",
+            {},
+            None,
+            id="linux_no_pair_props",
+        ),
+        pytest.param(
+            "Linux",
+            {"Paired": False},
+            False,
+            id="linux_not_paired",
+        ),
+        pytest.param(
+            "Linux",
+            {"Paired": True},
+            True,
+            id="linux_paired",
+        ),
+    ],
+)
+async def test_authenticated(
+    platform: str, properties: Union[bool, None], value: Union[bool, None]
+):
+    """
+    Test the authenticated property by mocking different platforms and
+    connection properties.
+    """
+
+    ble_device = BLEDevice(MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME, {"props": properties})
+    light = HueBLE.HueBleLight(ble_device)
+
+    with mock.patch("platform.system", return_value=platform):
+        assert (
+            light.authenticated == value
+        ), "light.authenticated does not match expected!"
