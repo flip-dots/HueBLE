@@ -643,11 +643,12 @@ class HueBleLight(object):
         try:
             await self._client.disconnect()
         except asyncio.TimeoutError:
-            _LOGGER.error(f"""Timeout attempting to disconnect from "{self.name}".""")
-        except BleakError as err:
-            _LOGGER.error(
-                f"""Error attempting to disconnect from "{self.name}"."""
-                f""" Error message "{err}"."""
+            _LOGGER.exception(
+                f"""Timeout attempting to disconnect from "{self.name}"."""
+            )
+        except BleakError:
+            _LOGGER.exception(
+                f"""BleakError attempting to disconnect from "{self.name}"."""
             )
 
         # Throw away the client
