@@ -176,6 +176,10 @@ async def test_automatic_retry():
         mock_bluetooth.allow_connect()
 
         # We expect to have been automatically reconnected
-        await asyncio.sleep(7)
+        async with asyncio.timeout(20):
+
+            while not device.connected or callback_count != 3:
+                await asyncio.sleep(1)
+
         assert device.connected, "Expected connected to be True"
         assert callback_count == 3, "Expected callback to be run on reconnection!"
