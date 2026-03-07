@@ -5,15 +5,19 @@
 """
 
 import asyncio
+from contextlib import nullcontext
 from struct import pack
+import time
+import traceback
 from typing import Any, Union
 from bleak import BLEDevice
 from unittest import mock
 
+from bleak.exc import BleakError
 import pytest
 import HueBLE
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
-from tests.helpers import MockDevice
+from tests.helpers import MockDevice, sleep_side_effect
 
 
 @pytest.mark.asyncio
@@ -530,6 +534,10 @@ async def test_authenticated(
     """
     Test the authenticated property by mocking different platforms and
     connection properties.
+
+    :param platform: The platform (e.g windows, linux, etc).
+    :param properties: The properties of the BLEDevice.
+    :param value: Expected value of light.authenticated.
     """
 
     ble_device = BLEDevice(MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME, {"props": properties})
@@ -539,3 +547,222 @@ async def test_authenticated(
         assert (
             light.authenticated == value
         ), "light.authenticated does not match expected!"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "establish_side_effect, connected_side_effect, pair_side_effect, authenticated_side_effect, services_side_effect, subscribe_side_effect, connection_lock_side_effect, error, error_messages",
+    [
+        pytest.param(
+            None,
+            False,
+            None,
+            None,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Failed to make an initial connection to the light",
+                "Not connected to ",
+            ],
+            id="is_connected_false",
+        ),
+        pytest.param(
+            Exception("Generic exception raised by establish_connection"),
+            False,
+            None,
+            None,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Failed to make an initial connection to the light",
+                "Generic exception raised by establish_connection",
+            ],
+            id="establish_connection_exception",
+        ),
+        pytest.param(
+            sleep_side_effect,
+            False,
+            None,
+            None,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Timed out attempting to connect to",
+            ],
+            id="establish_connection_timeout",
+        ),
+        pytest.param(
+            None,
+            True,
+            sleep_side_effect,
+            None,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Timed out attempting to pair",
+            ],
+            id="pair_timeout",
+        ),
+        pytest.param(
+            None,
+            True,
+            None,
+            False,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "System reports not paired after",
+            ],
+            id="pair_failed",
+        ),
+        pytest.param(
+            None,
+            True,
+            BleakError("Generic pairing error!"),
+            None,
+            None,
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Error from Bluetooth backend when attempting to pair",
+                "Generic pairing error!",
+            ],
+            id="pair_bleak_exception",
+        ),
+        pytest.param(
+            None,
+            True,
+            None,
+            None,
+            [True, True, Exception("NOPE BAD SERVICE")],
+            None,
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Failed to determine what services",
+                "NOPE BAD SERVICE",
+            ],
+            id="service_discovery_exception",
+        ),
+        pytest.param(
+            None,
+            True,
+            None,
+            None,
+            None,
+            [True, True, Exception("NOPE BAD SUBSCRIPTION")],
+            None,
+            HueBLE.ConnectionError,
+            [
+                "Exception connecting to light",
+                "Failed to subscribe to services offered",
+                "NOPE BAD SUBSCRIPTION",
+            ],
+            id="subscription_exception",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            sleep_side_effect,
+            HueBLE.ConnectionError,
+            [
+                "Timed out waiting for connection lock for",
+            ],
+            id="timeout_wait_lock",
+        ),
+    ],
+)
+async def test_connect_errors(
+    fast_timeouts,
+    establish_side_effect: Any,
+    connected_side_effect: Any,
+    pair_side_effect: Any,
+    authenticated_side_effect: Any,
+    services_side_effect: Any,
+    subscribe_side_effect: Any,
+    connection_lock_side_effect: Any,
+    error: Exception,
+    error_messages: list[str],
+):
+    """
+    Test the error raising of the connect function of a light.
+
+    :param establish_side_effect: Side effect of calling establish_connection().
+    :param connected_side_effect: Side effect of client.is_connected.
+    :param pair_side_effect: Side effect of calling client.pair().
+    :param authenticated_side_effect: Side effect of calling light.authenticated.
+    :param services_side_effect: Side effect of calling client.services.get_characteristic().
+    :param subscribe_side_effect: Side effect of calling client.start_notify().
+    :param connection_lock_side_effect: Side effect of entering context of self._connection_lock.
+    :param error: Expected exception to be raised inside connect.
+    :param error_messages: Expected error messages inside exception message.
+    """
+
+    mock_device = MockDevice()
+
+    # Configure side effects
+    mock_device.set_side_effects(
+        establish_side_effect=establish_side_effect,
+        connected_side_effect=connected_side_effect,
+        pair_side_effect=pair_side_effect,
+        services_side_effect=services_side_effect,
+        subscribe_side_effect=subscribe_side_effect,
+    )
+
+    sleep = asyncio.sleep
+    async with mock_device as mock_bluetooth:
+
+        device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+
+        # Use Linux platform (MacOS can't pair)
+        # Patch authenticated to enable simulating paired is False
+        # Fast forward delays by 100x
+        with (
+            mock.patch("platform.system", return_value="linux"),
+            mock.patch(
+                "HueBLE.HueBleLight.authenticated",
+                new_callable=mock.PropertyMock,
+                return_value=authenticated_side_effect,
+            ),
+            mock.patch("asyncio.sleep", new=lambda d: sleep(d / 100)),
+        ):
+
+            # Patch connection lock for connection lock timeout test
+            if connection_lock_side_effect is not None:
+                device._connection_lock = mock.MagicMock()
+                device._connection_lock.__aenter__ = mock.AsyncMock(
+                    side_effect=connection_lock_side_effect
+                )
+
+            # Expect error to be raised
+            with (pytest.raises(error) as e,):
+                await device.connect()
+
+            # Expect error log messages to be present
+            traceback_message = "".join(
+                traceback.format_exception(e.type, e.value, e.tb)
+            )
+            for error_message in error_messages:
+                assert error_message in traceback_message

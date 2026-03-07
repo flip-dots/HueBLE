@@ -118,6 +118,16 @@ class MockDevice:
         # client.is_connected. This can be changed dynamically
         self._is_connected = True
 
+        # Customizable side effects for newly initialized bleak clients
+        self._side_effect_establish = None
+        self._side_effect_connected = None
+        self._side_effect_pair = None
+        self._side_effect_services = None
+        self._side_effect_subscribe = None
+        self._side_effect_read = None
+        self._side_effect_write = None
+        self._side_effect_disconnect = None
+
     def new_connection_mock(self):
         """
         Executing this causes all new bleak clients created using
@@ -140,9 +150,28 @@ class MockDevice:
             mock_bleak_client.read_gatt_char.side_effect = self.read_gatt_char
             mock_bleak_client.write_gatt_char.side_effect = self.write_gatt_char
             mock_bleak_client.start_notify.side_effect = self.start_notify
-            type(mock_bleak_client).is_connected = mock.PropertyMock(
+            mock_bleak_client.services.get_characteristic = mock.MagicMock()
+            mock_bleak_client.is_connected = mock.PropertyMock(
                 side_effect=lambda: self._is_connected
             )
+
+            # Override with any set side effects
+            if self._side_effect_connected is not None:
+                mock_bleak_client.is_connected = self._side_effect_connected
+            if self._side_effect_pair is not None:
+                mock_bleak_client.pair.side_effect = self._side_effect_pair
+            if self._side_effect_services is not None:
+                mock_bleak_client.services.get_characteristic.side_effect = (
+                    self._side_effect_services
+                )
+            if self._side_effect_subscribe is not None:
+                mock_bleak_client.start_notify.side_effect = self._side_effect_subscribe
+            if self._side_effect_read is not None:
+                mock_bleak_client.read_gatt_char.side_effect = self._side_effect_read
+            if self._side_effect_write is not None:
+                mock_bleak_client.write_gatt_char.side_effect = self._side_effect_write
+            if self._side_effect_disconnect is not None:
+                mock_bleak_client.disconnect.side_effect = self._side_effect_disconnect
 
             # Add it to the list of all bleak clients
             self._mock_bleak_clients.append(
@@ -153,24 +182,53 @@ class MockDevice:
             self._current_mock_bleak_client = mock_bleak_client
             return mock_bleak_client
 
-        # Use custom_init to manufacture all new bleak clients
-        self._establish.side_effect = custom_init
+        # If establish_connection has an overridden side effect use that
+        if self._side_effect_establish is not None:
+            self._establish.side_effect = self._side_effect_establish
+
+        # Else use custom_init to manufacture all new bleak clients
+        else:
+            self._establish.side_effect = custom_init
 
     async def __aenter__(self):
         """Enter the context. Patches establish_connection so all new clients are mocks."""
         self._establish = self._patcher.start()
         self.new_connection_mock()
+
         return self
 
-    def new_connection_error(self, side_effect: Any):
+    def set_side_effects(
+        self,
+        establish_side_effect: Any = None,
+        connected_side_effect: Any = None,
+        pair_side_effect: Any = None,
+        services_side_effect: Any = None,
+        subscribe_side_effect: Any = None,
+        read_side_effect: Any = None,
+        write_side_effect: Any = None,
+        disconnect_side_effect: Any = None,
+    ):
         """
-        Executing this causes all new bleak clients created using
-        establish_connection to trigger this side effect.
+        This sets the specified side effects on all future bleak clients
+        which are initialized. They can be unset for new clients by setting
+        them to None. If you need to use None use [None].
 
-        :param side_effect: Side effect to trigger (e.g exception).
+        :param establish_side_effect: Side effect of using establish_connection().
+        :param connected_side_effect: Side effect of client.is_connected.
+        :param pair_side_effect: Side effect of calling client.pair().
+        :param services_side_effect: Side effect of calling client.services.get_characteristic().
+        :param read_side_effect: Side effect of calling client.read_gatt_char().
+        :param write_side_effect: Side effect of calling client.write_gatt_char().
+        :param disconnect_side_effect: Side effect of calling client.disconnect().
         """
-
-        self._establish.side_effect = side_effect
+        self._side_effect_establish = establish_side_effect
+        self._side_effect_connected = connected_side_effect
+        self._side_effect_pair = pair_side_effect
+        self._side_effect_services = services_side_effect
+        self._side_effect_subscribe = subscribe_side_effect
+        self._side_effect_read = read_side_effect
+        self._side_effect_write = write_side_effect
+        self._side_effect_disconnect = disconnect_side_effect
 
     def allow_connect(self):
         """
@@ -363,3 +421,8 @@ class MockDevice:
         """
         self._patcher.stop()
         return False
+
+
+async def sleep_side_effect(*args, **kwargs):
+    """Side effect used by some tests for triggering timeouts."""
+    await asyncio.sleep(999)
