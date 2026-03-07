@@ -1086,7 +1086,9 @@ class HueBleLight(object):
 
         # if an effect is active, more data is returned
         if len(buf) == 18:
-            onoff, brightness, x, y, effect_raw, speed = unpack("<xxBxxBxxHHxxBxxB", buf)
+            onoff, brightness, x, y, effect_raw, speed = unpack(
+                "<xxBxxBxxHHxxBxxB", buf
+            )
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
             effect = EffectType(effect_raw)
@@ -1098,7 +1100,9 @@ class HueBleLight(object):
                 self._effect_speed = speed
                 self._power_on = bool(onoff)
         elif len(buf) == 16:
-            onoff, brightness, temperature, effect_raw, speed = unpack("<xxBxxBxxHxxBxxB", buf)
+            onoff, brightness, temperature, effect_raw, speed = unpack(
+                "<xxBxxBxxHxxBxxB", buf
+            )
             effect = EffectType(effect_raw)
             effect_speed = speed
             if write_state:
@@ -1214,7 +1218,7 @@ class HueBleLight(object):
                 bytes.fromhex(EffectCommands.BRIGHTNESS.value),
                 max(min(brightness, 254), 1),
                 bytes.fromhex(EffectCommands.TEMPERATURE.value),
-                temperature
+                temperature,
             )
         await self._write_gatt(UUID_EFFECTS, buf)
 
