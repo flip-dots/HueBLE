@@ -389,13 +389,30 @@ class HueBleLight(object):
             def report(cHandle: int, data: bytearray) -> None:
                 # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
                 if len(data) == 18:
-                    # we got a full report containing onoff, brightness, color and effect data
+                    # we got a color effect report containing onoff, brightness, color and effect data
                     onoff, brightness, x, y, effect_raw, speed = unpack(
                         "<xxBxxBxxHHxxBxxB", data
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                    self._brightness = brightness
+                    self._effect = effect
+                    self._effect_speed = speed
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" Effect state of ({self.effect})"""
+                    )
+                elif len(data) == 16:
+                    # we got a temperature effect report containing onoff, brightness, temperature and effect data
+                    onoff, brightness, temperature, effect_raw, speed = unpack(
+                        "<xxBxxBxxHxxBxxB", data
+                    )
+                    effect = EffectType(effect_raw)
+                    effect_speed = speed
+                    self._colour_temp = temperature
                     self._brightness = brightness
                     self._effect = effect
                     self._effect_speed = speed
@@ -1069,7 +1086,7 @@ class HueBleLight(object):
 
         # if an effect is active, more data is returned
         if len(buf) == 18:
-            brightness, x, y, effect_raw, speed = unpack("<xxxxxBxxHHxxBxxB", buf)
+            onoff, brightness, x, y, effect_raw, speed = unpack("<xxBxxBxxHHxxBxxB", buf)
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
             effect = EffectType(effect_raw)
@@ -1079,19 +1096,32 @@ class HueBleLight(object):
                 self._brightness = brightness
                 self._effect = effect
                 self._effect_speed = speed
+                self._power_on = bool(onoff)
+        elif len(buf) == 16:
+            onoff, brightness, temperature, effect_raw, speed = unpack("<xxBxxBxxHxxBxxB", buf)
+            effect = EffectType(effect_raw)
+            effect_speed = speed
+            if write_state:
+                self._colour_temp = temperature
+                self._brightness = brightness
+                self._effect = effect
+                self._effect_speed = speed
+                self._power_on = bool(onoff)
         elif len(buf) == 12:
             # it is color and bightness
-            brightness, x, y = unpack("<xxxxxBxxHH", buf)
+            onoff, brightness, x, y = unpack("<xxBxxBxxHH", buf)
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
             if write_state:
                 self._colour_xy = (x_after, y_after)
                 self._brightness = brightness
+                self._power_on = bool(onoff)
         elif len(buf) == 10:
             # it is temperature mode
-            brightness, color_temp = unpack("<xxxxxBxxH", buf)
+            onoff, brightness, color_temp = unpack("<xxBxxBxxH", buf)
             if write_state:
                 self._colour_temp = color_temp
+                self._power_on = bool(onoff)
         else:
             # so far unkown
             pass
@@ -1122,7 +1152,7 @@ class HueBleLight(object):
         buf = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
         await self._write_gatt(UUID_XY_COLOUR, buf)
 
-    async def set_effect(
+    async def set_color_effect(
         self, x: float, y: float, brightness: int, effect: EffectType, effect_speed: int
     ):
         """Sets XY color, brightness, effect and effect speed."""
@@ -1152,6 +1182,39 @@ class HueBleLight(object):
                 bytes.fromhex(EffectCommands.COLORXY.value),
                 int(x * 0xFFFF),
                 int(y * 0xFFFF),
+            )
+        await self._write_gatt(UUID_EFFECTS, buf)
+
+    async def set_temperature_effect(
+        self, colour_temp: int, brightness: int, effect: EffectType, effect_speed: int
+    ):
+        """Sets XY color, brightness, effect and effect speed."""
+        temperature = max(min(int(colour_temp), 500), 153)
+
+        if effect is not EffectType.NONE:
+            buf = pack(
+                "<2sB2sB2sH2sB2sB",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.TEMPERATURE.value),
+                temperature,
+                bytes.fromhex(EffectCommands.EFFECT.value),
+                max(min(effect.value, 254), 1),
+                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
+                max(min(effect_speed, 254), 1),
+            )
+        else:
+            # if no effect is selected we can just operate in colorxy mode and ommit the effect data in the transfer
+            buf = pack(
+                "<2sB2sB2sH",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.TEMPERATURE.value),
+                temperature
             )
         await self._write_gatt(UUID_EFFECTS, buf)
 
