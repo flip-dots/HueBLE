@@ -74,9 +74,10 @@ async def main():
                 "3. Set brightness\n"
                 "4. Set colour temp\n"
                 "5. Set XY colour\n"
-                "6. Set Effect\n"
-                "7. View info\n"
-                "8. Exit"
+                "6. Set Color Effect\n"
+                "7. Set Temperature Effect\n"
+                "8. View info\n"
+                "9. Exit"
             )
 
             action = int(await ainput("> ")) - 1
@@ -110,7 +111,7 @@ async def main():
                         print("Enter Y value of color (0.0-1.0)")
                         y = float(await ainput())
                         await light.set_colour_xy(x, y)
-                    # Set Effect
+                    # Set Color Effect
                     case 5:
                         print("Enter X value of color (0.0-1.0)")
                         x = float(await ainput())
@@ -125,9 +126,23 @@ async def main():
                         effect_speed = int(await ainput())
                         print("Enter brightness (0 - 255)")
                         brightness = int(await ainput())
-                        await light.set_effect(x, y, brightness, EffectType(effect_id), effect_speed)
-                    # Print all light metadata
+                        await light.set_color_effect(x, y, brightness, EffectType(effect_id), effect_speed)
+                    # Set Temperature Effect
                     case 6:
+                        print("Enter colour temp (153-500)")
+                        temperature = float(await ainput())
+                        print("Possible Effects:")
+                        for effect in EffectType:
+                            print(f"({effect.name}: {effect.value})")
+                        print("Enter id of effect")
+                        effect_id = int(await ainput())
+                        print("Enter speed of effect (0 - 255)")
+                        effect_speed = int(await ainput())
+                        print("Enter brightness (0 - 255)")
+                        brightness = int(await ainput())
+                        await light.set_temperature_effect(temperature, brightness, EffectType(effect_id), effect_speed)
+                    # Print all light metadata
+                    case 7:
                         # Poll all values from the light
                         await light.poll_state()
                         print(f"Light name: {light.name}")
@@ -152,7 +167,7 @@ async def main():
                         print(f"Light color XY: {light.colour_xy}")
                         print(f"Light effects: {light.effect}")
 
-                    case 7:
+                    case 8:
                         break
 
             # Warn about pairing errors.
