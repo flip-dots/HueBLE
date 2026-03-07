@@ -643,11 +643,12 @@ class HueBleLight(object):
         try:
             await self._client.disconnect()
         except asyncio.TimeoutError:
-            _LOGGER.error(f"""Timeout attempting to disconnect from "{self.name}".""")
-        except BleakError as err:
-            _LOGGER.error(
-                f"""Error attempting to disconnect from "{self.name}"."""
-                f""" Error message "{err}"."""
+            _LOGGER.exception(
+                f"""Timeout attempting to disconnect from "{self.name}"."""
+            )
+        except BleakError:
+            _LOGGER.exception(
+                f"""BleakError attempting to disconnect from "{self.name}"."""
             )
 
         # Throw away the client
@@ -1088,7 +1089,10 @@ class HueBleLight(object):
     @property
     def power_state(self) -> bool | None:
         """Is the light running?, you better go catch it."""
-        return self._power_on
+        if self.supports_on_off:
+            return self._power_on
+        else:
+            return None
 
     @property
     def brightness(self) -> int | None:
@@ -1150,7 +1154,7 @@ class HueBleLight(object):
         # If the light does not support colour temp
         # it can't be in colour temp mode
         if not self.supports_colour_temp:
-            return False
+            return None
 
         # If the light does support temperature but does not support
         # XY colour then it must be in colour temperature mode.

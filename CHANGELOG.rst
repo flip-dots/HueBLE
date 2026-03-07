@@ -7,6 +7,25 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.1.1`_ (2026-03-07)
+=====================
+
+Added
+-----
+
+* Tests for most of library (~90% coverage).
+
+Changed
+-------
+
+* Errors from disconnecting now use ``logger.exception`` instead of ``logger.error``.
+
+Fixed
+-----
+
+* ``power_state`` now returns ``None`` when unsupported rather than ``False``.
+* ``colour_temp_mode`` now returns ``None`` when colour temperature is not supported rather than ``False``.
+
 `2.1.0`_ (2025-12-08)
 =====================
 
@@ -157,7 +176,7 @@ Fixed
 
 * HueBLE created.
 
-
+.. _2.1.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.1
 .. _2.1.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.0
 .. _2.0.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.0.0
 .. _1.0.8: https://github.com/flip-dots/HueBLE/releases/tag/v1.0.8
