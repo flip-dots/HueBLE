@@ -4,6 +4,7 @@
 
 """
 
+import asyncio
 from struct import pack
 from typing import Any
 
@@ -131,3 +132,50 @@ async def test_commands(
             assert (
                 prop == value
             ), f"Light state '{key}' is not expected value after command!"
+
+
+@pytest.mark.asyncio
+async def test_automatic_retry():
+    """
+    Test the automatic retrying of a lost connection.
+
+    This test expects the module to connect to the mock device
+    and then the mock device drops the connection and we expect
+    the module to automatically reconnect.
+
+    We expect callbacks to be run on connection, disconnection,
+    and reconnection.
+    """
+
+    async with MockDevice() as mock_bluetooth:
+
+        device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+
+        callback_count = 0
+
+        def my_callback(*args, **kwargs):
+            """We expect this to be called three times."""
+            nonlocal callback_count
+            callback_count = callback_count + 1
+
+        device.add_callback_on_state_changed(my_callback)
+
+        # We expect the device to connect
+        await device.connect()
+        await asyncio.sleep(0.5)
+        assert device.connected, "Expected connected to be True"
+        assert callback_count == 1, "Expected callback to be run on first connection!"
+
+        # We then trigger a disconnect from the device
+        mock_bluetooth.disconnect()
+        await asyncio.sleep(0.5)
+        assert not device.connected, "Expected connected to be False"
+        assert callback_count == 2, "Expected callback to be run on disconnection!"
+
+        # Set .is_connected to True
+        mock_bluetooth.allow_connect()
+
+        # We expect to have been automatically reconnected
+        await asyncio.sleep(5)
+        assert device.connected, "Expected connected to be True"
+        assert callback_count == 3, "Expected callback to be run on reconnection!"
