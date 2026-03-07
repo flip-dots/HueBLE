@@ -31,6 +31,7 @@ the module using a push based approach.
     - 🌗 Brightness
     - 🌡️ Colour Temp
     - 🌈 XY Colour
+    - 🌟 Effects
 - ✔️ Notifications of state changes to the light via push approach
 
 .. literalinclude:: ../../examples/demo.py

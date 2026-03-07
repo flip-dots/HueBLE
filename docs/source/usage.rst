@@ -177,10 +177,11 @@ The local state can be queried using the following ``@property`` methods.
 - :py:attr:`.maximum_mireds`
 - :py:attr:`.colour_xy`
 - :py:attr:`.colour_temp_mode`
+- :py:attr:`.effect`
 - :py:attr:`.supports_on_off`
 - :py:attr:`.supports_brightness`
 - :py:attr:`.supports_colour_temp`
-- :py:attr:`.supports_colour_xy`
+- :py:attr:`.supports_effects`
 
 
 
@@ -207,6 +208,7 @@ I trust you to be responsible ;)
 - :py:meth:`.poll_brightness`
 - :py:meth:`.poll_colour_temp`
 - :py:meth:`.poll_colour_xy`
+- :py:meth:`.poll_effects`
 
 
 Light Control 
@@ -219,6 +221,19 @@ The following methods can be used to change the current state of the light.
 - :py:meth:`.set_brightness`
 - :py:meth:`.set_colour_temp`
 - :py:meth:`.set_colour_xy`
+- :py:meth:`.set_effect`
+
+
+Effect Control
+^^^^^^^^^^^^^^
+With newer firmware, the Hue bulbs support a range of effects like candle, fireplace and much more.
+Those can be set with the following methods. With the new BLE endpoint used for the effects, it is now possible to set
+everything at once. Therefore, this method also takes color, brightness. The effect itself is defined by
+a enum of possible effects and the effect speed as a number between 0 and 255. The default speed used by philips is 117.
+
+- :py:meth:`.set_effect`
+
+
 
 
 Automatic Reconnection 

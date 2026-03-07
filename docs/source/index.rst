@@ -34,6 +34,7 @@ Features
 - 🌗 Brightness control
 - 🌡️ Colour temp control 
 - 🌈 XY colour control
+- 🌟 Effect control
 - ❔ Light state (power/brightness/temp/colour)
 - ⚙️ Light configuration (name)
 - 📊 Light metadata (manufacturer/model/zigbee address)
