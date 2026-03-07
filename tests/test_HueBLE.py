@@ -7,6 +7,7 @@
 import asyncio
 from struct import pack
 from typing import Any
+from unittest import mock
 
 import pytest
 import HueBLE
@@ -132,6 +133,232 @@ async def test_commands(
             assert (
                 prop == value
             ), f"Light state '{key}' is not expected value after command!"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "supports, requests, expected_props",
+    [
+        pytest.param(
+            {
+                "on_off": False,
+                "brightness": False,
+                "colour_temp": False,
+                "colour_xy": False,
+            },
+            {
+                HueBLE.UUID_MANUFACTURER: "Elliott".encode(),
+                HueBLE.UUID_MODEL: "ABCDEF".encode(),
+                HueBLE.UUID_FW_VERSION: "1.9.2.3".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("0a0b0c0d0e0f"),
+                HueBLE.UUID_NAME: "Red Wheelbarrow".encode(),
+            },
+            {
+                "manufacturer": "Elliott",
+                "model": "ABCDEF",
+                "firmware": "1.9.2.3",
+                "zigbee_address": "0a:0b:0c:0d:0e:0f",
+                "name_in_app": "Red Wheelbarrow",
+                "power_state": None,
+                "brightness": None,
+                "colour_temp": None,
+                "minimum_mireds": None,
+                "maximum_mireds": None,
+                "colour_xy": None,
+                "colour_temp_mode": None,
+            },
+            id="none",
+        ),
+        pytest.param(
+            {
+                "on_off": True,
+                "brightness": False,
+                "colour_temp": False,
+                "colour_xy": False,
+            },
+            {
+                HueBLE.UUID_MANUFACTURER: "sigNifY".encode(),
+                HueBLE.UUID_MODEL: "Cloning Machine 2000".encode(),
+                HueBLE.UUID_FW_VERSION: "2".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("ffff"),
+                HueBLE.UUID_NAME: "Mauler Twins Base".encode(),
+                HueBLE.UUID_POWER: bytes.fromhex("01"),
+            },
+            {
+                "manufacturer": "sigNifY",
+                "model": "Cloning Machine 2000",
+                "firmware": "2",
+                "zigbee_address": "ff:ff",
+                "name_in_app": "Mauler Twins Base",
+                "power_state": True,
+            },
+            id="power_only",
+        ),
+        pytest.param(
+            {
+                "on_off": True,
+                "brightness": True,
+                "colour_temp": False,
+                "colour_xy": False,
+            },
+            {
+                HueBLE.UUID_MANUFACTURER: "Govee".encode(),
+                HueBLE.UUID_MODEL: "Hue Clone".encode(),
+                HueBLE.UUID_FW_VERSION: "0.0.0".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("010101010101"),
+                HueBLE.UUID_NAME: "Totally a Hue light".encode(),
+                HueBLE.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("FA"),
+            },
+            {
+                "manufacturer": "Govee",
+                "model": "Hue Clone",
+                "firmware": "0.0.0",
+                "zigbee_address": "01:01:01:01:01:01",
+                "name_in_app": "Totally a Hue light",
+                "power_state": True,
+                "brightness": 250,
+            },
+            id="power_and_brightness",
+        ),
+        pytest.param(
+            {
+                "on_off": True,
+                "brightness": True,
+                "colour_temp": True,
+                "colour_xy": False,
+            },
+            {
+                HueBLE.UUID_MANUFACTURER: "IKEA".encode(),
+                HueBLE.UUID_MODEL: "Slightly Better Hue Clone".encode(),
+                HueBLE.UUID_FW_VERSION: "1.2.3-alpha".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("09080706050403020100"),
+                HueBLE.UUID_NAME: "Hue light?".encode(),
+                HueBLE.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("96"),
+                HueBLE.UUID_TEMPERATURE: bytes.fromhex("7201"),
+            },
+            {
+                "manufacturer": "IKEA",
+                "model": "Slightly Better Hue Clone",
+                "firmware": "1.2.3-alpha",
+                "zigbee_address": "09:08:07:06:05:04:03:02:01:00",
+                "name_in_app": "Hue light?",
+                "power_state": True,
+                "brightness": 150,
+                "colour_temp": 370,
+                "minimum_mireds": HueBLE.MIN_MIREDS,
+                "maximum_mireds": HueBLE.MAX_MIREDS,
+                "colour_temp_mode": True,
+            },
+            id="colour_temperature",
+        ),
+        pytest.param(
+            {
+                "on_off": True,
+                "brightness": True,
+                "colour_temp": True,
+                "colour_xy": True,
+            },
+            {
+                HueBLE.UUID_MANUFACTURER: "pHillIpS".encode(),
+                HueBLE.UUID_MODEL: "BIG LIGHT 3000".encode(),
+                HueBLE.UUID_FW_VERSION: "0.0.0.0.0.1a".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.UUID_NAME: "Volcano lair kitchen".encode(),
+                HueBLE.UUID_POWER: bytes.fromhex("00"),
+                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("36"),
+                HueBLE.UUID_TEMPERATURE: bytes.fromhex("9900"),
+                HueBLE.UUID_XY_COLOUR: pack(
+                    "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
+                ),
+            },
+            {
+                "manufacturer": "pHillIpS",
+                "model": "BIG LIGHT 3000",
+                "firmware": "0.0.0.0.0.1a",
+                "zigbee_address": "00:01:02:03:04:05:06:07:08:09",
+                "name_in_app": "Volcano lair kitchen",
+                "power_state": False,
+                "brightness": 54,
+                "colour_temp": 153,
+                "colour_xy": (0.0, 0.0),
+                "colour_temp_mode": True,
+            },
+            id="all",
+        ),
+    ],
+)
+async def test_poll_state(
+    supports: dict[str, bool],
+    requests: dict[str, bytes],
+    expected_props: dict[str, Any],
+):
+    """
+    Test polling all supported values from a device with
+    different supported parameters.
+
+    :param supports: Map of supported features.
+    :param requests: Map of UUIDs to what the mock light should return.
+    :param expected_props: Map of light properties to expected values.
+    """
+
+    async with MockDevice() as mock_bluetooth:
+        with (
+            mock.patch(
+                "HueBLE.HueBleLight.supports_on_off",
+                new_callable=mock.PropertyMock,
+                return_value=supports["on_off"],
+            ),
+            mock.patch(
+                "HueBLE.HueBleLight.supports_brightness",
+                new_callable=mock.PropertyMock,
+                return_value=supports["brightness"],
+            ),
+            mock.patch(
+                "HueBLE.HueBleLight.supports_colour_temp",
+                new_callable=mock.PropertyMock,
+                return_value=supports["colour_temp"],
+            ),
+            mock.patch(
+                "HueBLE.HueBleLight.supports_colour_xy",
+                new_callable=mock.PropertyMock,
+                return_value=supports["colour_xy"],
+            ),
+        ):
+
+            device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+
+            callback_count = 0
+
+            def my_callback(*args, **kwargs):
+                """We expect this to be called twice."""
+                nonlocal callback_count
+                callback_count = callback_count + 1
+
+            device.add_callback_on_state_changed(my_callback)
+
+            # We expect the connection to succeed
+            await device.connect()
+            assert device.connected, "Expected connected to return True"
+            assert callback_count == 1, "Expected callback to be executed on connect"
+
+            # Expect all of the poll functions to be called inside poll_state
+            for key, value in requests.items():
+                mock_bluetooth.expect_ordered_read(key, value)
+
+            # Poll all the values and assert state changed
+            assert await device.poll_state(), "Expected state to have changed"
+
+            # Assert that all values were polled
+            mock_bluetooth.check_assertions()
+
+            # Assert that the light parsed all of the responses and the
+            # state has been correctly set
+            for key, value in expected_props.items():
+
+                prop = getattr(device, key)
+                assert prop == value, f"Light state '{key}' is not the expected value!"
 
 
 @pytest.mark.asyncio
