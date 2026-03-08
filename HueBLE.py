@@ -436,7 +436,9 @@ class HueBleLight(object):
                     )
                 elif len(data) == 12:
                     # bulb is in color mode, we got onoff, brightness and colorxy data
-                    onoff, brightness, x, y = unpack(UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, data)
+                    onoff, brightness, x, y = unpack(
+                        UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, data
+                    )
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
                     self._power_on = bool(onoff)
@@ -447,7 +449,9 @@ class HueBleLight(object):
                     )
                 elif len(data) == 10:
                     # bulb is in temperature mode, we got onoff, brightness and temperature
-                    brightness, color_temp = unpack(UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data)
+                    brightness, color_temp = unpack(
+                        UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
+                    )
                     self._colour_temp = color_temp
                     self._brightness = brightness
                     self._power_on = bool(onoff)
@@ -458,7 +462,9 @@ class HueBleLight(object):
                     )
                 else:
                     # so far unkown
-                    _LOGGER.warning("unrecognized effect response with length {len(data)}: {data}")
+                    _LOGGER.warning(
+                        "unrecognized effect response with length {len(data)}: {data}"
+                    )
 
                 self._run_state_changed_callbacks()
 
@@ -1090,7 +1096,7 @@ class HueBleLight(object):
     async def poll_effects(
         self, write_state: bool = DEFAULT_POLL_WRITES_STATE
     ) -> tuple[EffectType, int]:
-        """Gets the effect type and effect speed as enum and int between 0 and 256."""
+        """Gets the effect type and effect speed as enum and int between 0 and 255."""
         buf = await self._read_gatt(UUID_EFFECTS)
 
         effect = EffectType.NONE
@@ -1125,7 +1131,9 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         elif len(buf) == 12:
             # it is color and bightness
-            onoff, brightness, x, y = unpack(UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, buf)
+            onoff, brightness, x, y = unpack(
+                UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, buf
+            )
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
             if write_state:
@@ -1134,13 +1142,17 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         elif len(buf) == 10:
             # it is temperature mode
-            onoff, brightness, color_temp = unpack(UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf)
+            onoff, brightness, color_temp = unpack(
+                UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf
+            )
             if write_state:
                 self._colour_temp = color_temp
                 self._power_on = bool(onoff)
         else:
             # so far unkown
-            _LOGGER.warning("unrecognized effect response with length {len(buf)}: {buf}")
+            _LOGGER.warning(
+                "unrecognized effect response with length {len(buf)}: {buf}"
+            )
 
         return effect, effect_speed
 
@@ -1171,7 +1183,14 @@ class HueBleLight(object):
     async def set_color_effect(
         self, x: float, y: float, brightness: int, effect: EffectType, effect_speed: int
     ):
-        """Sets XY color, brightness, effect and effect speed."""
+        """
+        Sets XY color, brightness, effect and effect speed.
+
+        :param x: X colour coordinate as float between 0.0 and 1.0
+        :param y: Y colour coordinate as float between 0.0 and 1.0
+        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain color)
+        :param effect_speed: speed of the effect between 0 and 255
+        """
         if effect is not EffectType.NONE:
             buf = pack(
                 "<2sB2sB2sHH2sB2sB",
@@ -1204,7 +1223,13 @@ class HueBleLight(object):
     async def set_temperature_effect(
         self, colour_temp: int, brightness: int, effect: EffectType, effect_speed: int
     ):
-        """Sets XY color, brightness, effect and effect speed."""
+        """
+        Sets XY color, brightness, effect and effect speed.
+
+        :param temperature: color temperature between 153 and 500
+        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain color)
+        :param effect_speed: speed of the effect between 0 and 255
+        """
         temperature = max(min(int(colour_temp), 500), 153)
 
         if effect is not EffectType.NONE:
@@ -1426,7 +1451,7 @@ class HueBleLight(object):
 
     @property
     def effect(self) -> tuple[EffectType, int] | None:
-        """Effect as EffectType enum.
+        """Effect as tuple of EffectType enum and effect speed.
         Returns None if the feature is not supported by the light.
         """
         if self.supports_effects:
