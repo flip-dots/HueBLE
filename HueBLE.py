@@ -122,10 +122,10 @@ DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 UNPACK_EFFECT_API_COLOR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
 
 #: data stream unpack format string for decoding plain color without effect (effect API)
-UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT = "<xxBxxBxxHxxBxxB"
+UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT = "<xxBxxBxxHH"
 
 #: data stream unpack format string for decoding temperature with effect (effect API)
-UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHH"
+UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
 
 #: data stream unpack format string for decoding plain temperature without effect (effect API)
 UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
