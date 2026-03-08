@@ -118,6 +118,18 @@ DEFAULT_RECONNECT_DELAY = 3
 #: Maximum amount of automatic reconnection attempts the program will make.
 DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 
+#: data stream unpack format string for decoding color with effect (effect API)
+UNPACK_EFFECT_API_COLOR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
+
+#: data stream unpack format string for decoding plain color without effect (effect API)
+UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT = "<xxBxxBxxHxxBxxB"
+
+#: data stream unpack format string for decoding temperature with effect (effect API)
+UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHH"
+
+#: data stream unpack format string for decoding plain temperature without effect (effect API)
+UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -391,7 +403,7 @@ class HueBleLight(object):
                 if len(data) == 18:
                     # we got a color effect report containing onoff, brightness, color and effect data
                     onoff, brightness, x, y, effect_raw, speed = unpack(
-                        "<xxBxxBxxHHxxBxxB", data
+                        UNPACK_EFFECT_API_COLOR_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
@@ -408,7 +420,7 @@ class HueBleLight(object):
                 elif len(data) == 16:
                     # we got a temperature effect report containing onoff, brightness, temperature and effect data
                     onoff, brightness, temperature, effect_raw, speed = unpack(
-                        "<xxBxxBxxHxxBxxB", data
+                        UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
@@ -424,7 +436,7 @@ class HueBleLight(object):
                     )
                 elif len(data) == 12:
                     # bulb is in color mode, we got onoff, brightness and colorxy data
-                    onoff, brightness, x, y = unpack("<xxBxxBxxHH", data)
+                    onoff, brightness, x, y = unpack(UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, data)
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
                     self._power_on = bool(onoff)
@@ -435,7 +447,7 @@ class HueBleLight(object):
                     )
                 elif len(data) == 10:
                     # bulb is in temperature mode, we got onoff, brightness and temperature
-                    brightness, color_temp = unpack("<xxBxxBxxH", data)
+                    brightness, color_temp = unpack(UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data)
                     self._colour_temp = color_temp
                     self._brightness = brightness
                     self._power_on = bool(onoff)
@@ -1087,7 +1099,7 @@ class HueBleLight(object):
         # if an effect is active, more data is returned
         if len(buf) == 18:
             onoff, brightness, x, y, effect_raw, speed = unpack(
-                "<xxBxxBxxHHxxBxxB", buf
+                UNPACK_EFFECT_API_COLOR_WITH_EFFECT, buf
             )
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
@@ -1101,7 +1113,7 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         elif len(buf) == 16:
             onoff, brightness, temperature, effect_raw, speed = unpack(
-                "<xxBxxBxxHxxBxxB", buf
+                UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, buf
             )
             effect = EffectType(effect_raw)
             effect_speed = speed
@@ -1113,7 +1125,7 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         elif len(buf) == 12:
             # it is color and bightness
-            onoff, brightness, x, y = unpack("<xxBxxBxxHH", buf)
+            onoff, brightness, x, y = unpack(UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, buf)
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
             if write_state:
@@ -1122,7 +1134,7 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         elif len(buf) == 10:
             # it is temperature mode
-            onoff, brightness, color_temp = unpack("<xxBxxBxxH", buf)
+            onoff, brightness, color_temp = unpack(UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf)
             if write_state:
                 self._colour_temp = color_temp
                 self._power_on = bool(onoff)
