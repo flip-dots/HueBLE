@@ -458,7 +458,7 @@ class HueBleLight(object):
                     )
                 else:
                     # so far unkown
-                    _LOGGER.warning("unrecognized effect response")
+                    _LOGGER.warning("unrecognized effect response with length {len(data)}: {data}")
 
                 self._run_state_changed_callbacks()
 
@@ -1140,7 +1140,7 @@ class HueBleLight(object):
                 self._power_on = bool(onoff)
         else:
             # so far unkown
-            pass
+            _LOGGER.warning("unrecognized effect response with length {len(buf)}: {buf}")
 
         return effect, effect_speed
 
