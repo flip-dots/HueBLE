@@ -180,6 +180,7 @@ The local state can be queried using the following ``@property`` methods.
 - :py:attr:`.effect`
 - :py:attr:`.supports_on_off`
 - :py:attr:`.supports_brightness`
+- :py:attr:`.supports_colour_xy`
 - :py:attr:`.supports_colour_temp`
 - :py:attr:`.supports_effects`
 
