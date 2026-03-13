@@ -106,16 +106,16 @@ async def main():
 
                     # Set XY colour
                     case 4:
-                        print("Enter X value of color (0.0-1.0)")
+                        print("Enter X value of colour (0.0-1.0)")
                         x = float(await ainput())
-                        print("Enter Y value of color (0.0-1.0)")
+                        print("Enter Y value of colour (0.0-1.0)")
                         y = float(await ainput())
                         await light.set_colour_xy(x, y)
                     # Set Color Effect
                     case 5:
-                        print("Enter X value of color (0.0-1.0)")
+                        print("Enter X value of colour (0.0-1.0)")
                         x = float(await ainput())
-                        print("Enter Y value of color (0.0-1.0)")
+                        print("Enter Y value of colour (0.0-1.0)")
                         y = float(await ainput())
                         print("Possible Effects:")
                         for effect in EffectType:
@@ -126,7 +126,7 @@ async def main():
                         effect_speed = int(await ainput())
                         print("Enter brightness (0 - 255)")
                         brightness = int(await ainput())
-                        await light.set_color_effect(x, y, brightness, EffectType(effect_id), effect_speed)
+                        await light.set_colour_effect(x, y, brightness, EffectType(effect_id), effect_speed)
                     # Set Temperature Effect
                     case 6:
                         print("Enter colour temp (153-500)")
@@ -152,7 +152,7 @@ async def main():
                         print(f"Supports on/off: {light.supports_on_off}")
                         print(f"Supports brightness:" f" {light.supports_brightness}")
                         print(f"Supports colour temp:" f" {light.supports_colour_temp}")
-                        print(f"Supports XY color: {light.supports_colour_xy}")
+                        print(f"Supports XY colour: {light.supports_colour_xy}")
                         print(f"Supports Effects: {light.supports_effects}")
                         print(f"Light firmware: {light.firmware}")
                         print(f"Light Zigbee address: {light.zigbee_address}")
@@ -164,7 +164,7 @@ async def main():
                         print(f"Light colour temperature: {light.colour_temp}")
                         print(f"Light minimum mireds: {light.minimum_mireds}")
                         print(f"Light maximum mireds: {light.maximum_mireds}")
-                        print(f"Light color XY: {light.colour_xy}")
+                        print(f"Light colour XY: {light.colour_xy}")
                         print(f"Light effects: {light.effect}")
 
                     case 8:
