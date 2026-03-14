@@ -90,6 +90,38 @@ from tests.helpers import MockDevice, sleep_side_effect
             },
             id="colour_temp_mode",
         ),
+        pytest.param(
+            HueBLE.UUID_EFFECTS,
+            bytes.fromhex("01010102015004049bc54f3606010108015e"),
+            {
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015004049bc54f3606010108015e"),
+            },
+            "set_colour_effect",
+            [0.77191, 0.21215, 80, HueBLE.EffectType.CANDLE, 94],
+            {
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+                "colour_xy": (0.7719081406881819, 0.21214618142977035),
+                "colour_temp_mode": False,
+
+            },
+            id="colour_effect",
+        ),
+        pytest.param(
+            HueBLE.UUID_EFFECTS,
+            bytes.fromhex("01010102015003022c0106010108015e"),
+            {
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015003022c0106010108015e"),
+            },
+            "set_temperature_effect",
+            [300, 80, HueBLE.EffectType.CANDLE, 94],
+            {
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+                "colour_temp": 300,
+                "colour_temp_mode": True,
+
+            },
+            id="temperature_effect",
+        ),
     ],
 )
 async def test_commands(
