@@ -32,6 +32,9 @@ py-modules = ['HueBLE']
 select = ["ALL"]
 ignore = ["D200", "D202", "D212", "G004", "PIE790"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
 [project.urls]
 Homepage = "https://github.com/flip-dots/HueBLE"
 Documentation = "https://hueble.readthedocs.io/en/latest/"
