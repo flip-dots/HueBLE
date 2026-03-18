@@ -28,6 +28,10 @@ classifiers = [
 [tool.setuptools]
 py-modules = ['HueBLE']
 
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D200", "D202", "D212", "G004", "PIE910"]
+
 [project.urls]
 Homepage = "https://github.com/flip-dots/HueBLE"
 Documentation = "https://hueble.readthedocs.io/en/latest/"

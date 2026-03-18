@@ -8,8 +8,9 @@
     ],
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter",
-        "editor.formatOnSave": true
+        "editor.formatOnSave": true,
     },
+    "ruff.lint.enable": true,
     "python.testing.pytestArgs": [
         "tests"
     ],
