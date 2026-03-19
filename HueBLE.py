@@ -399,6 +399,9 @@ class HueBleLight(object):
         if self.supports_effects:
 
             def report(cHandle: int, data: bytearray) -> None:
+                # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
+                effect_state_changed = False
+                
                 # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
                 if len(data) == 18:
                     # we got a colour effect report containing onoff, brightness, colour and effect data
@@ -407,6 +410,10 @@ class HueBleLight(object):
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
+                    
+                    if (self._effect is not effect) or (self._effect_speed != effect_speed):
+                        effect_state_changed = True
+                    
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
                     self._effect = effect
@@ -424,6 +431,10 @@ class HueBleLight(object):
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
+
+                    if (self._effect is not effect) or (self._effect_speed != effect_speed):
+                        effect_state_changed = True
+                    
                     self._colour_temp = temperature
                     self._brightness = brightness
                     self._effect = effect
@@ -466,7 +477,8 @@ class HueBleLight(object):
                         "unrecognized effect response with length {len(data)}: {data}"
                     )
 
-                self._run_state_changed_callbacks()
+                if effect_state_changed:
+                    self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to Effects UUID")
             await self._client.start_notify(UUID_EFFECTS, report)
