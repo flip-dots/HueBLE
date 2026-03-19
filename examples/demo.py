@@ -74,7 +74,7 @@ async def main():
                 "3. Set brightness\n"
                 "4. Set colour temp\n"
                 "5. Set XY colour\n"
-                "6. Set Color Effect\n"
+                "6. Set Colour Effect\n"
                 "7. Set Temperature Effect\n"
                 "8. View info\n"
                 "9. Exit"
@@ -111,7 +111,7 @@ async def main():
                         print("Enter Y value of colour (0.0-1.0)")
                         y = float(await ainput())
                         await light.set_colour_xy(x, y)
-                    # Set Color Effect
+                    # Set Colour Effect
                     case 5:
                         print("Enter X value of colour (0.0-1.0)")
                         x = float(await ainput())

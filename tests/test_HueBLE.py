@@ -343,7 +343,7 @@ async def test_commands(
                 "colour_xy": (0.4, 0.49999237048905165),
                 "effect": (HueBLE.EffectType.CANDLE, 94),
             },
-            id="color_effect",
+            id="colour_effect",
         ),
         pytest.param(
             {

@@ -119,10 +119,10 @@ DEFAULT_RECONNECT_DELAY = 3
 DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 
 #: data stream unpack format string for decoding colour with effect (effect API)
-UNPACK_EFFECT_API_COLOR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
+UNPACK_EFFECT_API_COLOUR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
 
 #: data stream unpack format string for decoding plain colour without effect (effect API)
-UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT = "<xxBxxBxxHH"
+UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT = "<xxBxxBxxHH"
 
 #: data stream unpack format string for decoding temperature with effect (effect API)
 UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
@@ -154,7 +154,7 @@ class EffectCommands(Enum):
     ONOFF = "0101"
     BRIGHTNESS = "0201"
     TEMPERATURE = "0302"
-    COLORXY = "0404"
+    COLOURXY = "0404"
     EFFECT = "0601"
     EFFECT_SPEED = "0801"
 
@@ -406,7 +406,7 @@ class HueBleLight(object):
                 if len(data) == 18:
                     # we got a colour effect report containing onoff, brightness, colour and effect data
                     onoff, brightness, x, y, effect_raw, speed = unpack(
-                        UNPACK_EFFECT_API_COLOR_WITH_EFFECT, data
+                        UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
                     effect_speed = speed
@@ -448,7 +448,7 @@ class HueBleLight(object):
                 elif len(data) == 12:
                     # bulb is in colour mode, we got onoff, brightness and colourxy data
                     onoff, brightness, x, y = unpack(
-                        UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, data
+                        UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, data
                     )
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
@@ -1117,7 +1117,7 @@ class HueBleLight(object):
         # if an effect is active, more data is returned
         if len(buf) == 18:
             onoff, brightness, x, y, effect_raw, speed = unpack(
-                UNPACK_EFFECT_API_COLOR_WITH_EFFECT, buf
+                UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, buf
             )
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
@@ -1144,7 +1144,7 @@ class HueBleLight(object):
         elif len(buf) == 12:
             # it is colour and bightness
             onoff, brightness, x, y = unpack(
-                UNPACK_EFFECT_API_COLOR_WITHOUT_EFFECT, buf
+                UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, buf
             )
             x_after = x / 0xFFFF
             y_after = y / 0xFFFF
@@ -1211,7 +1211,7 @@ class HueBleLight(object):
                 0x1,
                 bytes.fromhex(EffectCommands.BRIGHTNESS.value),
                 max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLORXY.value),
+                bytes.fromhex(EffectCommands.COLOURXY.value),
                 int(x * 0xFFFF),
                 int(y * 0xFFFF),
                 bytes.fromhex(EffectCommands.EFFECT.value),
@@ -1227,7 +1227,7 @@ class HueBleLight(object):
                 0x1,
                 bytes.fromhex(EffectCommands.BRIGHTNESS.value),
                 max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLORXY.value),
+                bytes.fromhex(EffectCommands.COLOURXY.value),
                 int(x * 0xFFFF),
                 int(y * 0xFFFF),
             )
