@@ -401,7 +401,7 @@ class HueBleLight(object):
             def report(cHandle: int, data: bytearray) -> None:
                 # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
                 effect_state_changed = False
-                
+
                 # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
                 if len(data) == 18:
                     # we got a colour effect report containing onoff, brightness, colour and effect data
@@ -409,10 +409,10 @@ class HueBleLight(object):
                         UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
-                    
+
                     if (self._effect is not effect) or (self._effect_speed != speed):
                         effect_state_changed = True
-                    
+
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
                     self._effect = effect
@@ -432,7 +432,7 @@ class HueBleLight(object):
 
                     if (self._effect is not effect) or (self._effect_speed != speed):
                         effect_state_changed = True
-                    
+
                     self._colour_temp = temperature
                     self._brightness = brightness
                     self._effect = effect
