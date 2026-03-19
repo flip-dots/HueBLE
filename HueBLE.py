@@ -409,9 +409,8 @@ class HueBleLight(object):
                         UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
-                    effect_speed = speed
                     
-                    if (self._effect is not effect) or (self._effect_speed != effect_speed):
+                    if (self._effect is not effect) or (self._effect_speed != speed):
                         effect_state_changed = True
                     
                     self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
@@ -430,9 +429,8 @@ class HueBleLight(object):
                         UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, data
                     )
                     effect = EffectType(effect_raw)
-                    effect_speed = speed
 
-                    if (self._effect is not effect) or (self._effect_speed != effect_speed):
+                    if (self._effect is not effect) or (self._effect_speed != speed):
                         effect_state_changed = True
                     
                     self._colour_temp = temperature
