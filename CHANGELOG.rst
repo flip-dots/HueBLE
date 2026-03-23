@@ -7,6 +7,21 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.2.0`_ (2026-03-23)
+=====================
+
+Added
+-----
+
+* New effects commands ``set_colour_effect`` and ``set_temperature_effect``.
+* New effects properties ``effect`` and ``supports_effects``.
+
+Changed
+-------
+
+* ``poll_state`` will now also poll effects if supported.
+* Registered state changed callbacks can now be triggered by effect changes if supported.
+
 `2.1.1`_ (2026-03-07)
 =====================
 
@@ -176,6 +191,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.2.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.0
 .. _2.1.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.1
 .. _2.1.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.0
 .. _2.0.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.0.0
