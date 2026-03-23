@@ -90,6 +90,38 @@ from tests.helpers import MockDevice, sleep_side_effect
             },
             id="colour_temp_mode",
         ),
+        pytest.param(
+            HueBLE.UUID_EFFECTS,
+            bytes.fromhex("01010102015004049bc54f3606010108015e"),
+            {
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015004049bc54f3606010108015e"),
+            },
+            "set_colour_effect",
+            [0.77191, 0.21215, 80, HueBLE.EffectType.CANDLE, 94],
+            {
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+                "colour_xy": (0.7719081406881819, 0.21214618142977035),
+                "colour_temp_mode": False,
+
+            },
+            id="colour_effect",
+        ),
+        pytest.param(
+            HueBLE.UUID_EFFECTS,
+            bytes.fromhex("01010102015003022c0106010108015e"),
+            {
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015003022c0106010108015e"),
+            },
+            "set_temperature_effect",
+            [300, 80, HueBLE.EffectType.CANDLE, 94],
+            {
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+                "colour_temp": 300,
+                "colour_temp_mode": True,
+
+            },
+            id="temperature_effect",
+        ),
     ],
 )
 async def test_commands(
@@ -289,6 +321,52 @@ async def test_commands(
                 "colour_temp_mode": True,
             },
             id="all",
+        ),
+        pytest.param(
+            {
+                HueBLE.UUID_MANUFACTURER: "atmospheric lights".encode(),
+                HueBLE.UUID_MODEL: "Candle Lights".encode(),
+                HueBLE.UUID_FW_VERSION: "c.a.f.f.e.e".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.UUID_NAME: "Tea light".encode(),
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015004046666ff7f06010108015e"),
+            },
+            {
+                "manufacturer": "atmospheric lights",
+                "model": "Candle Lights",
+                "firmware": "c.a.f.f.e.e",
+                "zigbee_address": "00:01:02:03:04:05:06:07:08:09",
+                "name_in_app": "Tea light",
+                "power_state": True,
+                "brightness": 80,
+                "colour_temp": None,
+                "colour_xy": (0.4, 0.49999237048905165),
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+            },
+            id="colour_effect",
+        ),
+        pytest.param(
+            {
+                HueBLE.UUID_MANUFACTURER: "atmospheric lights".encode(),
+                HueBLE.UUID_MODEL: "Candle Lights".encode(),
+                HueBLE.UUID_FW_VERSION: "c.a.f.f.e.e".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.UUID_NAME: "Tea light".encode(),
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015003022c0106010108015e"),
+            },
+            {
+                "manufacturer": "atmospheric lights",
+                "model": "Candle Lights",
+                "firmware": "c.a.f.f.e.e",
+                "zigbee_address": "00:01:02:03:04:05:06:07:08:09",
+                "name_in_app": "Tea light",
+                "power_state": True,
+                "brightness": 80,
+                "colour_temp": 300,
+                "colour_xy": None,
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+            },
+            id="temperature_effect",
         ),
     ],
 )

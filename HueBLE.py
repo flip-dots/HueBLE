@@ -13,7 +13,7 @@ from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 from struct import pack, unpack
 from typing import Callable
-
+from enum import Enum
 
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
@@ -41,6 +41,9 @@ UUID_TEMPERATURE = "932c32bd-0004-47a2-835a-a8d455b859dd"
 
 #: XY colour of light. Two 16-bit ints. 0xFFFFFFFF when CW/WW. Handle 58.
 UUID_XY_COLOUR = "932c32bd-0005-47a2-835a-a8d455b859dd"
+
+#: new colour change and effect enpoint
+UUID_EFFECTS = "932c32bd-0007-47a2-835a-a8d455b859dd"
 
 #: This is a UUID that as far as I know only hue lights use and it shows up
 #: under BLE Device details and as such does not require connecting to check
@@ -115,8 +118,45 @@ DEFAULT_RECONNECT_DELAY = 3
 #: Maximum amount of automatic reconnection attempts the program will make.
 DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 
+#: data stream unpack format string for decoding colour with effect (effect API)
+UNPACK_EFFECT_API_COLOUR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
+
+#: data stream unpack format string for decoding plain colour without effect (effect API)
+UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT = "<xxBxxBxxHH"
+
+#: data stream unpack format string for decoding temperature with effect (effect API)
+UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
+
+#: data stream unpack format string for decoding plain temperature without effect (effect API)
+UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
+
 
 _LOGGER = logging.getLogger(__name__)
+
+
+#: Enum describing the different avaibale effects with their corresponding id
+class EffectType(Enum):
+    NONE = 0x00
+    CANDLE = 0x01
+    FIREPLACE = 0x02
+    PRISM = 0x03
+    SPARKLE = 0x0A
+    OPAL = 0x0B
+    GLISTEN = 0x0C
+    UNDERWATER = 0x0E
+    COSMOS = 0x0F
+    SUNBEAM = 0x10
+    ENCHANT = 0x11
+
+
+#: EFFECT_COMMANDS (hex string) for the Effect Characteristic endpoint containing one byte id and one byte data length
+class EffectCommands(Enum):
+    ONOFF = "0101"
+    BRIGHTNESS = "0201"
+    TEMPERATURE = "0302"
+    COLOURXY = "0404"
+    EFFECT = "0601"
+    EFFECT_SPEED = "0801"
 
 
 class HueBleError(Exception):
@@ -200,6 +240,8 @@ class HueBleLight(object):
         self._minimum_mireds = MIN_MIREDS
         self._maximum_mireds = MAX_MIREDS
         self._colour_xy = None
+        self._effect = None
+        self._effect_speed = None
 
         self._state_changed_callbacks: list[Callable[[], None]] = []
         self._expect_disconnect = True
@@ -352,6 +394,92 @@ class HueBleLight(object):
 
             _LOGGER.debug("Subscribing to XY colour UUID")
             await self._client.start_notify(UUID_XY_COLOUR, report)
+
+        # If Effects is supported
+        if self.supports_effects:
+
+            def report(cHandle: int, data: bytearray) -> None:
+                # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
+                effect_state_changed = False
+
+                # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
+                if len(data) == 18:
+                    # we got a colour effect report containing onoff, brightness, colour and effect data
+                    onoff, brightness, x, y, effect_raw, speed = unpack(
+                        UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
+                    )
+                    effect = EffectType(effect_raw)
+
+                    if (self._effect is not effect) or (self._effect_speed != speed):
+                        effect_state_changed = True
+
+                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                    self._brightness = brightness
+                    self._effect = effect
+                    self._effect_speed = speed
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" Effect state of ({self.effect})"""
+                    )
+                elif len(data) == 16:
+                    # we got a temperature effect report containing onoff, brightness, temperature and effect data
+                    onoff, brightness, temperature, effect_raw, speed = unpack(
+                        UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, data
+                    )
+                    effect = EffectType(effect_raw)
+
+                    if (self._effect is not effect) or (self._effect_speed != speed):
+                        effect_state_changed = True
+
+                    self._colour_temp = temperature
+                    self._brightness = brightness
+                    self._effect = effect
+                    self._effect_speed = speed
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" Effect state of ({self.effect})"""
+                    )
+                elif len(data) == 12:
+                    # bulb is in colour mode, we got onoff, brightness and colourxy data
+                    onoff, brightness, x, y = unpack(
+                        UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, data
+                    )
+                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                    self._brightness = brightness
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" XY colour state of ({self.colour_xy}) and brightness ({self.brightness})"""
+                    )
+                elif len(data) == 10:
+                    # bulb is in temperature mode, we got onoff, brightness and temperature
+                    brightness, colour_temp = unpack(
+                        UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
+                    )
+                    self._colour_temp = colour_temp
+                    self._brightness = brightness
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" colour temp state of ({self.colour_temp})"""
+                    )
+                else:
+                    # so far unkown
+                    _LOGGER.warning(
+                        "unrecognized effect response with length {len(data)}: {data}"
+                    )
+
+                if effect_state_changed:
+                    self._run_state_changed_callbacks()
+
+            _LOGGER.debug("Subscribing to Effects UUID")
+            await self._client.start_notify(UUID_EFFECTS, report)
 
     async def connect(
         self,
@@ -630,6 +758,16 @@ class HueBleLight(object):
                 f"""support changing the XY colour."""
             )
             self._colour_xy = None
+        if self._client.services.get_characteristic(UUID_EFFECTS) is not None:
+            self._effect = EffectType.NONE
+            self._effect_speed = 0
+        else:
+            _LOGGER.debug(
+                f"""Light "{self.name}" does not appear to """
+                f"""support changing effects."""
+            )
+            self._effect = None
+            self._effect_speed = None
 
     async def disconnect(self) -> None:
         """Disconnects the program from the light.
@@ -745,6 +883,16 @@ class HueBleLight(object):
                 else:
                     _LOGGER.debug("Light does not support polling XY colour")
 
+                if self.supports_effects:
+                    prev_effect_speed = self._effect_speed
+                    prev_effect = self._effect
+
+                    effect, effect_speed = await self.poll_effects(write_state=True)
+                    if prev_effect != effect or prev_effect_speed != effect_speed:
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling effects")
+
                 # Print it all out for debugging
                 _LOGGER.debug(
                     f"""Data from light "{self.name}"\n"""
@@ -757,7 +905,9 @@ class HueBleLight(object):
                     f"""Power state: "{self.power_state}"\n"""
                     f"""Brightness: "{self.brightness}"\n"""
                     f"""Colour temp: "{self.colour_temp}"\n"""
-                    f"""Colour XY: "{self.colour_xy}"."""
+                    f"""Colour XY: "{self.colour_xy}"\n"""
+                    f"""Effects: "{self._effect}"\n"""
+                    f"""Effect speed: "{self._effect_speed}"."""
                 )
 
             # Callbacks are run outside of the state update lock
@@ -953,6 +1103,69 @@ class HueBleLight(object):
             self._colour_xy = (x_after, y_after)
         return x_after, y_after
 
+    async def poll_effects(
+        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+    ) -> tuple[EffectType, int]:
+        """Gets the effect type and effect speed as enum and int between 0 and 255."""
+        buf = await self._read_gatt(UUID_EFFECTS)
+
+        effect = EffectType.NONE
+        effect_speed = 0
+
+        # if an effect is active, more data is returned
+        if len(buf) == 18:
+            onoff, brightness, x, y, effect_raw, speed = unpack(
+                UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, buf
+            )
+            x_after = x / 0xFFFF
+            y_after = y / 0xFFFF
+            effect = EffectType(effect_raw)
+            effect_speed = speed
+            if write_state:
+                self._colour_xy = (x_after, y_after)
+                self._brightness = brightness
+                self._effect = effect
+                self._effect_speed = speed
+                self._power_on = bool(onoff)
+        elif len(buf) == 16:
+            onoff, brightness, temperature, effect_raw, speed = unpack(
+                UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, buf
+            )
+            effect = EffectType(effect_raw)
+            effect_speed = speed
+            if write_state:
+                self._colour_temp = temperature
+                self._brightness = brightness
+                self._effect = effect
+                self._effect_speed = speed
+                self._power_on = bool(onoff)
+        elif len(buf) == 12:
+            # it is colour and bightness
+            onoff, brightness, x, y = unpack(
+                UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, buf
+            )
+            x_after = x / 0xFFFF
+            y_after = y / 0xFFFF
+            if write_state:
+                self._colour_xy = (x_after, y_after)
+                self._brightness = brightness
+                self._power_on = bool(onoff)
+        elif len(buf) == 10:
+            # it is temperature mode
+            onoff, brightness, colour_temp = unpack(
+                UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf
+            )
+            if write_state:
+                self._colour_temp = colour_temp
+                self._power_on = bool(onoff)
+        else:
+            # so far unkown
+            _LOGGER.warning(
+                f"unrecognized effect response with length {len(buf)}: {buf}"
+            )
+
+        return effect, effect_speed
+
     async def set_light_name(self, name: str):
         """Sets the name of the light. Not tested, use at own risk."""
         await self._write_gatt(UUID_NAME, str.encode(name))
@@ -976,6 +1189,87 @@ class HueBleLight(object):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
         buf = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
         await self._write_gatt(UUID_XY_COLOUR, buf)
+
+    async def set_colour_effect(
+        self, x: float, y: float, brightness: int, effect: EffectType, effect_speed: int
+    ):
+        """
+        Sets XY colour, brightness, effect and effect speed.
+
+        :param x: X colour coordinate as float between 0.0 and 1.0
+        :param y: Y colour coordinate as float between 0.0 and 1.0
+        :param brightness: brightness as an integer between 0 and 255
+        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
+        :param effect_speed: speed of the effect between 0 and 255
+        """
+        if effect is not EffectType.NONE:
+            buf = pack(
+                "<2sB2sB2sHH2sB2sB",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.COLOURXY.value),
+                int(x * 0xFFFF),
+                int(y * 0xFFFF),
+                bytes.fromhex(EffectCommands.EFFECT.value),
+                max(min(effect.value, 254), 1),
+                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
+                max(min(effect_speed, 254), 1),
+            )
+        else:
+            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
+            buf = pack(
+                "<2sB2sB2sHH",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.COLOURXY.value),
+                int(x * 0xFFFF),
+                int(y * 0xFFFF),
+            )
+        await self._write_gatt(UUID_EFFECTS, buf)
+
+    async def set_temperature_effect(
+        self, colour_temp: int, brightness: int, effect: EffectType, effect_speed: int
+    ):
+        """
+        Sets colour temperature, brightness, effect and effect speed.
+
+        :param colour_temp: colour temperature between 153 and 500
+        :param brightness: brightness as an integer between 0 and 255
+        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
+        :param effect_speed: speed of the effect between 0 and 255
+        """
+        temperature = max(min(int(colour_temp), 500), 153)
+
+        if effect is not EffectType.NONE:
+            buf = pack(
+                "<2sB2sB2sH2sB2sB",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.TEMPERATURE.value),
+                temperature,
+                bytes.fromhex(EffectCommands.EFFECT.value),
+                max(min(effect.value, 254), 1),
+                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
+                max(min(effect_speed, 254), 1),
+            )
+        else:
+            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
+            buf = pack(
+                "<2sB2sB2sH",
+                bytes.fromhex(EffectCommands.ONOFF.value),
+                0x1,
+                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
+                max(min(brightness, 254), 1),
+                bytes.fromhex(EffectCommands.TEMPERATURE.value),
+                temperature,
+            )
+        await self._write_gatt(UUID_EFFECTS, buf)
 
     @property
     def connected(self) -> bool:
@@ -1168,6 +1462,16 @@ class HueBleLight(object):
             return self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0)
 
     @property
+    def effect(self) -> tuple[EffectType, int] | None:
+        """Effect as tuple of EffectType enum and effect speed.
+        Returns None if the feature is not supported by the light.
+        """
+        if self.supports_effects:
+            return (self._effect, self._effect_speed)
+        else:
+            None
+
+    @property
     def supports_on_off(self) -> bool:
         """Does the light support turning on and off.
         Yes I know it's silly but its for forwards compatibility
@@ -1189,6 +1493,11 @@ class HueBleLight(object):
     def supports_colour_xy(self) -> bool:
         """Does the light support XY (RGB) colour control."""
         return self._colour_xy is not None
+
+    @property
+    def supports_effects(self) -> bool:
+        """Does the light support effect control."""
+        return self._effect is not None
 
 
 async def discover_lights(
