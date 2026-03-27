@@ -3,3 +3,5 @@ pytest-asyncio
 pytest-cov
 bleak
 bleak-retry-connector
+mypy
+ruff
