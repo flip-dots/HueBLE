@@ -7,13 +7,19 @@
 import asyncio
 import logging
 import platform
+import uuid
 from bleak import BleakClient, BleakError, BleakScanner
+from bleak.backends import BleakBackend
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 from struct import pack, unpack
 from typing import Callable
 from enum import Enum
+from dbus_fast.aio import MessageBus
+from dbus_fast.service import ServiceInterface, method
+from dbus_fast import BusType
+
 
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
@@ -79,9 +85,6 @@ DEFAULT_ON_CONNECT_RUN_CALLBACKS = True
 
 #: Default time to wait for a pairing request to complete.
 DEFAULT_PAIR_TIMEOUT = 15
-
-#: Default time to wait after pairing to check if it was successful.
-DEFAULT_PAIR_DELAY = 5
 
 #: Default max time before a call to poll state times out.
 DEFAULT_POLL_STATE_TIMEOUT = 45
@@ -458,7 +461,7 @@ class HueBleLight(object):
                     )
                 elif len(data) == 10:
                     # bulb is in temperature mode, we got onoff, brightness and temperature
-                    brightness, colour_temp = unpack(
+                    onoff, brightness, colour_temp = unpack(
                         UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
                     )
                     self._colour_temp = colour_temp
@@ -662,13 +665,12 @@ class HueBleLight(object):
         try:
             _LOGGER.debug(f"""Attempting to pair to "{self.name}".""")
             async with asyncio.timeout(DEFAULT_PAIR_TIMEOUT):
-                await self._client.pair()
 
-            await asyncio.sleep(DEFAULT_PAIR_DELAY)
-            if self.authenticated is False:
-                raise Exception(
-                    f"""Failed to pair to "{self.name}". System reports not paired after pair attempt!"""
-                )
+                if self._client.backend_id is BleakBackend.BLUEZ_DBUS:
+                    _LOGGER.debug("Using bluez workaround...")
+                    await self._pair_bluez()
+                else:
+                    await self._client.pair()
 
         except asyncio.TimeoutError as e:
             raise PairingError(
@@ -679,6 +681,51 @@ class HueBleLight(object):
             raise PairingError(
                 f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
             ) from e
+
+    async def _pair_bluez(self):
+        """Workaround for bluez authentication issues."""
+
+        class BluezAgent(ServiceInterface):
+            """Agent for automatically accepting pairing passkeys."""
+
+            def __init__(self):
+                super().__init__("org.bluez.Agent1")
+
+            @method()
+            def RequestConfirmation(self, device: "o", passkey: "u"):
+                _LOGGER.debug(f"Auto confirming passkey {passkey} for {device}")
+                return
+
+            @method()
+            def Cancel(self):
+                _LOGGER.debug("Pairing cancelled by device")
+
+        # Build agent
+        _LOGGER.debug("Setting up pairing agent...")
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        agent = BluezAgent()
+        unique_id = uuid.uuid4().hex[:8]
+        agent_path = f"/com/bleak/agent/hue_ble/{unique_id}"
+        bus.export(agent_path, agent)
+
+        # Register agent
+        introspection = await bus.introspect("org.bluez", "/org/bluez")
+        proxy_object = bus.get_proxy_object("org.bluez", "/org/bluez", introspection)
+        agent_manager = proxy_object.get_interface("org.bluez.AgentManager1")
+        await agent_manager.call_register_agent(agent_path, "KeyboardDisplay")
+        _LOGGER.debug("Pairing agent ready!")
+
+        async with asyncio.timeout(DEFAULT_PAIR_TIMEOUT):
+
+            try:
+                await asyncio.sleep(1)
+                _LOGGER.debug("Sending pairing command...")
+                await self._client.pair()
+            finally:
+                _LOGGER.debug("Stopping pairing agent...")
+                await agent_manager.call_unregister_agent(agent_path)
+                bus.unexport(agent_path, agent)
+                bus.disconnect()
 
     async def _determine_services(self) -> None:
         """Determines what features the light supports.
