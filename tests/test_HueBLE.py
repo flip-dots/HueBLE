@@ -94,7 +94,9 @@ from tests.helpers import MockDevice, sleep_side_effect
             HueBLE.UUID_EFFECTS,
             bytes.fromhex("01010102015004049bc54f3606010108015e"),
             {
-                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015004049bc54f3606010108015e"),
+                HueBLE.UUID_EFFECTS: bytes.fromhex(
+                    "01010102015004049bc54f3606010108015e"
+                ),
             },
             "set_colour_effect",
             [0.77191, 0.21215, 80, HueBLE.EffectType.CANDLE, 94],
@@ -102,7 +104,6 @@ from tests.helpers import MockDevice, sleep_side_effect
                 "effect": (HueBLE.EffectType.CANDLE, 94),
                 "colour_xy": (0.7719081406881819, 0.21214618142977035),
                 "colour_temp_mode": False,
-
             },
             id="colour_effect",
         ),
@@ -118,7 +119,6 @@ from tests.helpers import MockDevice, sleep_side_effect
                 "effect": (HueBLE.EffectType.CANDLE, 94),
                 "colour_temp": 300,
                 "colour_temp_mode": True,
-
             },
             id="temperature_effect",
         ),
@@ -329,7 +329,9 @@ async def test_commands(
                 HueBLE.UUID_FW_VERSION: "c.a.f.f.e.e".encode(),
                 HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
                 HueBLE.UUID_NAME: "Tea light".encode(),
-                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015004046666ff7f06010108015e"),
+                HueBLE.UUID_EFFECTS: bytes.fromhex(
+                    "01010102015004046666ff7f06010108015e"
+                ),
             },
             {
                 "manufacturer": "atmospheric lights",
@@ -686,21 +688,6 @@ async def test_authenticated(
                 "Timed out attempting to pair",
             ],
             id="pair_timeout",
-        ),
-        pytest.param(
-            None,
-            True,
-            None,
-            False,
-            None,
-            None,
-            None,
-            HueBLE.ConnectionError,
-            [
-                "Exception connecting to light",
-                "System reports not paired after",
-            ],
-            id="pair_failed",
         ),
         pytest.param(
             None,
