@@ -461,7 +461,7 @@ class HueBleLight(object):
                     )
                 elif len(data) == 10:
                     # bulb is in temperature mode, we got onoff, brightness and temperature
-                    brightness, colour_temp = unpack(
+                    onoff, brightness, colour_temp = unpack(
                         UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
                     )
                     self._colour_temp = colour_temp
