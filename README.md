@@ -88,6 +88,9 @@ pip install bleak bleak-retry-connector
 
 Example code from example.py
 
+> [!NOTE]
+> Do not forget to put the light in [pairing mode](https://hueble.readthedocs.io/en/latest/usage.html#pairing) before first connection!
+
 ```python
 import asyncio
 from bleak import BleakScanner

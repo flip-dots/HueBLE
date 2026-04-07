@@ -96,6 +96,8 @@ by subsequently calling the :py:meth:`.poll_state` method.
 ``await light.poll_state()``
 
 
+.. _pairing_label:
+
 Pairing
 ^^^^^^^
 
