@@ -57,8 +57,9 @@ Supported Operating Systems
 
 - 🐧 Linux (BlueZ)
 
-  - ✔️ Ubuntu Desktop
-  - ✔️ Arch (HomeAssistant OS)
+  - ✔️ Ubuntu Desktop (24.04)
+  - ✔️ Arch 
+  - ✔️ Buildroot (HomeAssistant OS)
 
 - 🏢 Windows
 
@@ -66,7 +67,13 @@ Supported Operating Systems
 
 - 💾 Mac OSX
 
-  - ❓ Maybe?
+  - ✔️ Sequoia (15.7)
+  
+- 🛜 ESPHome (Bluetooth Proxy)
+
+  - ESP32-C3-Super-Mini
+  - ESP32-C5-N4R2
+
 
 Contents
 --------
