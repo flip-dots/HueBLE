@@ -3,3 +3,4 @@ pytest-asyncio
 pytest-cov
 bleak
 bleak-retry-connector
+dbus-fast
