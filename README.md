@@ -131,3 +131,8 @@ if __name__ == "__main__":
 ### Demo program
 
 A more fully featured demo program can be found in  ``` examples/demo.py ``` which demonstrates all of the implemented features.
+
+
+## Disclaimer
+
+HueBLE is a software library designed to work with Philips Hue. Philips Hue is a registered trademark of Philips. This project is not affiliated with, endorsed by, or sponsored by Philips (Though I wouldn't mind being sponsored 😉). All other trademarks cited herein are the property of their respective owners.

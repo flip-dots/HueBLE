@@ -75,6 +75,16 @@ Supported Operating Systems
   - ESP32-C5-N4R2
 
 
+Disclaimer
+----------
+
+HueBLE is a software library designed to work with Philips Hue. 
+Philips Hue is a registered trademark of Philips. 
+This project is not affiliated with, endorsed by, or sponsored by Philips 
+(Though I wouldn't mind being sponsored 😉). 
+All other trademarks cited herein are the property of their respective owners.
+
+
 Contents
 --------
 
