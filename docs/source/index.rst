@@ -91,6 +91,7 @@ Contents
 .. toctree::
    :maxdepth: 2
 
+   self
    installation
    usage
    examples
