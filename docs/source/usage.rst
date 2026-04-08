@@ -96,20 +96,33 @@ by subsequently calling the :py:meth:`.poll_state` method.
 ``await light.poll_state()``
 
 
+.. _pairing_label:
+
 Pairing
 ^^^^^^^
 
 On connection to a light this module will attempt to pair to the light
-if it is not already paired. To pair with a light it must be in pairing mode,
-this can be activated in the Philips Hue app. Resetting the light also puts it in pairing mode.
+if it is not already paired. To pair with a light it **must** be in pairing mode,
+unconfigured lights are in pairing mode by default but this can also be achieved by
+using the `voice assistant pairing feature <https://www.philips-hue.com/en-us/explore-hue/works-with/amazon-alexa/set-up>`_
+in the Phillips Hue App (`Android <https://play.google.com/store/apps/details?id=com.philips.lighting.hue2>`_
+/`iOS <https://apps.apple.com/us/app/philips-hue/id1055281310>`_) or by 
+`factory resetting <https://www.philips-hue.com/en-us/support/article/how-to-factory-reset-philips-hue-lights/000004>`_ 
+the light.
 
 ``Settings -> Voice Assistants -> 
 Amazon Alexa or Google Home -> Make Discoverable``
 
 .. note::
 
-    If you are not using Linux automatic pairing may not be possible and you
-    will have to pair the lights in your OS.
+    If you `factory reset <https://www.philips-hue.com/en-us/support/article/how-to-factory-reset-philips-hue-lights/000004>`_ the light
+    its Bluetooth address will change as it is randomly generated.
+
+.. note::
+
+    Pairing automatically is `not supported <https://bleak.readthedocs.io/en/latest/backends/macos.html#pairing>`_ on MacOS, you
+    will be prompted to pair to the light by the OS upon first connection. Further connections will not
+    require this unless the light is reset.
 
 
 Full state updates
@@ -256,3 +269,17 @@ Other neat things
 
 - You can set attributes such as colour while the light is in the off state 
   without turning the light on.
+
+- Hue lights connected using Zigbee are still discoverable and controllable by 
+  this module, even if they are connected to another Zigbee network or bound
+  to a Zigbee switch. This means you can use Zigbee and Bluetooth at the same time.
+  This can be done by pairing the light to the Zigbee hub or switch and then using
+  the Hue app in Bluetooth mode to connect to the light over Bluetooth using the
+  QR code on the side of the light and then using the Alexa/Google pairing steps.
+
+  .. note::
+
+    The Hue app will not let you setup a light using Bluetooth if it is already
+    connected to a Hue hub that the app is aware of, the workaround is to remove
+    the Hub from the Hue app or use a fresh install/device that is not paired with the hub.
+

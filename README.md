@@ -43,12 +43,16 @@ It leverages the Bleak library to interact with Bluetooth Philips Hue lights.
 ## Supported Operating Systems
 
 - 🐧 Linux (BlueZ)
-  - Ubuntu Desktop
-  - Arch (HomeAssistant OS)
+  - Ubuntu Desktop (24.04)
+  - Arch 
+  - Buildroot (HomeAssistant OS)
 - 🏢 Windows
   - Windows 10 
 - 💾 Mac OSX
-  - Maybe?
+  - Sequoia (15.7)
+- 🛜 ESPHome (Bluetooth Proxy)
+  - ESP32-C3-Super-Mini
+  - ESP32-C5-N4R2
 
 
 ## Documentation
@@ -73,7 +77,7 @@ same directory as your program. If you are using manual installation make sure
 the dependencies are installed as well.
 
 ```
-pip install bleak bleak-retry-connector
+pip install bleak bleak-retry-connector dbus-fast
 ```
 
 
@@ -83,6 +87,9 @@ pip install bleak bleak-retry-connector
 ### Quick start example
 
 Example code from example.py
+
+> [!NOTE]
+> Do not forget to put the light in [pairing mode](https://hueble.readthedocs.io/en/latest/usage.html#pairing) before first connection!
 
 ```python
 import asyncio
@@ -124,3 +131,8 @@ if __name__ == "__main__":
 ### Demo program
 
 A more fully featured demo program can be found in  ``` examples/demo.py ``` which demonstrates all of the implemented features.
+
+
+## Disclaimer
+
+HueBLE is a software library designed to work with Philips Hue. Philips Hue is a registered trademark of Philips. This project is not affiliated with, endorsed by, or sponsored by Philips (Though I wouldn't mind being sponsored 😉). All other trademarks cited herein are the property of their respective owners.

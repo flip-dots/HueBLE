@@ -10,6 +10,9 @@ Basic Example
 Simple blinky light example demonstrating making a connection to a light
 from its MAC address and making it turn off then on again.
 
+.. note::
+   Do not forget to put the light in :ref:`pairing mode <pairing_label>` before first connection!
+
 .. literalinclude:: ../../examples/example.py
     :language: python
     :linenos:
@@ -33,6 +36,9 @@ the module using a push based approach.
     - 🌈 XY Colour
     - 🌟 Effects
 - ✔️ Notifications of state changes to the light via push approach
+
+.. note::
+   Do not forget to put the light in :ref:`pairing mode <pairing_label>` before first connection!
 
 .. literalinclude:: ../../examples/demo.py
     :language: python

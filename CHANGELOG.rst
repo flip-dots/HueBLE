@@ -7,6 +7,29 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.2.1`_ (2026-04-08)
+=====================
+
+Added
+-----
+
+* Added references to pairing mode section of docs in README.md and examples.
+* Added disclaimer to docs.
+* Added a link to the main page of the docs to the docs index/navbar.
+* Added a note to the docs about using Bluetooth and Zigbee at the same time.
+
+Changed
+-------
+
+* Updated the supported operating systems section of the docs with tested MacOS version and ESPHome support.
+* Improved the pairing docs to better describe setup and include links to Hue docs.
+
+Fixed
+-----
+
+* Fixed an error when receiving certain types of state updates from the effects API.
+* Fixed ``org.bluez.Error.AuthenticationFailed`` error when pairing using BlueZ 5.78+.
+
 `2.2.0`_ (2026-03-23)
 =====================
 
@@ -191,6 +214,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.2.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.1
 .. _2.2.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.0
 .. _2.1.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.1
 .. _2.1.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.0
