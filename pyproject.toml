@@ -1,10 +1,10 @@
 [project]
 name = "HueBLE"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
   "bleak>=0.19.0",
   "bleak-retry-connector",
-  "dbus-fast"
+  "dbus-fast; sys_platform == 'linux'"
 ]
 requires-python = ">= 3.11"
 authors = [

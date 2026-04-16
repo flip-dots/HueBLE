@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.2.2`_ (2026-04-16)
+=====================
+
+Fixed
+-----
+
+* Fixed dbus-fast dependency being imported on non-Linux platforms.
+* Fixed dbus-fast dependency being installed on non-Linux platforms.
+
 `2.2.1`_ (2026-04-08)
 =====================
 
@@ -214,6 +223,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.2.2: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.2
 .. _2.2.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.1
 .. _2.2.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.0
 .. _2.1.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.1.1
