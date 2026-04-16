@@ -16,9 +16,6 @@ from bleak_retry_connector import establish_connection
 from struct import pack, unpack
 from typing import Callable
 from enum import Enum
-from dbus_fast.aio import MessageBus
-from dbus_fast.service import ServiceInterface, method
-from dbus_fast import BusType
 
 
 #: String containing manufacturer. Handle 15.
@@ -684,6 +681,9 @@ class HueBleLight(object):
 
     async def _pair_bluez(self):
         """Workaround for bluez authentication issues."""
+        from dbus_fast.aio import MessageBus
+        from dbus_fast.service import ServiceInterface, method
+        from dbus_fast import BusType
 
         class BluezAgent(ServiceInterface):
             """Agent for automatically accepting pairing passkeys."""
