@@ -17,7 +17,6 @@ from struct import pack, unpack
 from typing import Callable
 from enum import Enum
 
-
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
 
@@ -147,6 +146,13 @@ class EffectType(Enum):
     COSMOS = 0x0F
     SUNBEAM = 0x10
     ENCHANT = 0x11
+
+    @classmethod
+    def _missing_(cls, value):
+        _LOGGER.warning(
+            f"Unknown effect type: '{value}' reported by light, using default of none!"
+        )
+        return cls.NONE
 
 
 #: EFFECT_COMMANDS (hex string) for the Effect Characteristic endpoint containing one byte id and one byte data length
