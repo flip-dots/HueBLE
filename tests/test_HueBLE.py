@@ -370,6 +370,29 @@ async def test_commands(
             },
             id="temperature_effect",
         ),
+        pytest.param(
+            {
+                HueBLE.UUID_MANUFACTURER: "Philippe Hue".encode(),
+                HueBLE.UUID_MODEL: "Fancy new light".encode(),
+                HueBLE.UUID_FW_VERSION: "1.7.10".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.UUID_NAME: "L A M P".encode(),
+                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102014503022c01060115080138"),
+            },
+            {
+                "manufacturer": "Philippe Hue",
+                "model": "Fancy new light",
+                "firmware": "1.7.10",
+                "zigbee_address": "00:01:02:03:04:05:06:07:08:09",
+                "name_in_app": "L A M P",
+                "power_state": True,
+                "brightness": 69,
+                "colour_temp": 300,
+                "colour_xy": None,
+                "effect": (HueBLE.EffectType.NONE, 56),
+            },
+            id="unknown_effect",
+        ),
     ],
 )
 async def test_poll_state(
