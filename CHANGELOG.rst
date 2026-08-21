@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.2.3`_ (2026-08-21)
+=====================
+
+Added
+-----
+
+* Added section about unknown effect types to the docs.
+
+Fixed
+-----
+
+* Log warning message instead of raising an exception when an unknown effect type is reported. 
+
 `2.2.2`_ (2026-04-16)
 =====================
 
@@ -223,6 +236,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.2.3: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.3
 .. _2.2.2: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.2
 .. _2.2.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.1
 .. _2.2.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.0

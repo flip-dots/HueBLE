@@ -249,6 +249,12 @@ a enum of possible effects and the effect speed as a number between 0 and 255. T
 - :py:meth:`.set_effect`
 - :py:meth:`.set_temperature_effect`
 
+  .. note::
+
+    If an unknown effect is reported by the device a warning message will be printed to the log and the effect type will
+    default to the None effect. If you wish to add support for an unknown effect, raise an issue which identifies the 
+    effect type value and the name of the effect in the Hue app or submit a PR which adds the effect type to the EffectType 
+    enum.
 
 
 Automatic Reconnection 

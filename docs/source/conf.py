@@ -15,9 +15,9 @@ project_root = os.path.dirname(cwd)
 sys.path.insert(0, project_root)
 
 project = "HueBLE"
-copyright = "2025, Harvey Lelliott"
+copyright = "2026, Harvey Lelliott"
 author = "Harvey Lelliott"
-release = "2.2.2"
+release = "2.2.3"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
