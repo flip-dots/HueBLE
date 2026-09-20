@@ -24,6 +24,8 @@ It leverages the Bleak library to interact with Bluetooth Philips Hue lights.
 - 🌗 Brightness control
 - 🌡️ Colour temp control 
 - 🌈 XY colour control
+- ✨ Built-in effects with custom colour and speed
+- ⏱️ Custom transitions, including instant changes
 - ❔ Light state (power/brightness/temp/colour)
 - ⚙️ Light configuration (name)
 - 📊 Light metadata (manufacturer/model/zigbee address)
@@ -126,6 +128,39 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 ```
+
+
+### Transitions
+
+Power, brightness, colour temperature and colour changes can use a custom
+transition time.
+
+```python
+await light.set_power(True, transition_ms=0)
+await light.set_brightness(254, transition_ms=100)
+await light.set_colour_temp(250, transition_ms=400)
+await light.set_colour_xy(0.3, 0.4, transition_ms=200)
+```
+
+`transition_ms=0` makes the change instant. Transition times use 100 ms steps.
+
+
+### Effects
+
+HueBLE supports Hue effects such as Candle, Fireplace, Sunrise and Sunset.
+Effects can use a custom colour, brightness and speed.
+
+```python
+await light.set_colour_effect(
+    0.30,
+    0.14,
+    254,
+    HueBLE.EffectType.CANDLE,
+    128,
+)
+```
+
+Effect speed ranges from `0` (slowest) to `255` (fastest).
 
 
 ### Demo program
