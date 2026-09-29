@@ -12,12 +12,84 @@ import traceback
 from typing import Any, Union
 from bleak import BLEDevice
 from unittest import mock
+import base64
 
 from bleak.exc import BleakError
 import pytest
 import HueBLE
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, sleep_side_effect
+
+
+def test_parse_light_control_info():
+    data = bytes.fromhex(
+        "000103" "01023200" "0202e803" "03020700" "04080efe030000000000" "06020100"
+    )
+
+    minimum, maximum = HueBLE._parse_light_control_info(data)
+
+    assert minimum == 50
+    assert maximum == 1000
+
+
+def test_parse_dlc_uri():
+    key = bytes(range(16))
+    eui = bytes(range(8))
+
+    record = (
+        bytes([0x0A, 0x01, 0x16])
+        + bytes([0x0B, 0x04])
+        + b"Test"
+        + bytes([0x0C, 0x10])
+        + key
+        + bytes([0x0D, 0x08])
+        + eui
+    )
+
+    raw = bytes([0x00, len(record)]) + record
+    uri = "hue://dlc?" + base64.b64encode(raw).decode()
+
+    creds = HueBLE._parse_dlc_uri(uri)
+
+    assert creds.key == key
+    assert creds.zigbee_eui64 == eui
+    assert creds.name == "Test"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "",
+        "https://example.com",
+        "hue://dlc?not-base64",
+    ],
+)
+def test_invalid_dlc_uri(uri):
+    with pytest.raises(HueBLE.DlcError):
+        HueBLE._parse_dlc_uri(uri)
+
+
+def test_secure_gatt_round_trip():
+    light = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
+    ieee = bytes.fromhex("0011223344556677")
+
+    light._als_session = HueBLE._AlsSession(
+        key=bytes(range(16)),
+        ieee_init=ieee,
+        ieee_resp=ieee,
+    )
+    light._service_uuid = lambda _: "932c32bd-0000-47a2-835a-a8d455b859dd"
+
+    encrypted = light._encrypt_gatt(HueBLE.UUID_POWER, b"\x01")
+
+    assert len(encrypted) == 9
+    assert encrypted[:4] == b"\x01\x00\x00\x00"
+
+    decrypted = light._decrypt_gatt(HueBLE.UUID_POWER, encrypted)
+
+    assert decrypted == b"\x01"
+    assert light._als_session.tx_counter == 1
+    assert light._als_session.rx_counter == 1
 
 
 @pytest.mark.asyncio

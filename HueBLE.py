@@ -5,8 +5,14 @@
 """
 
 import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
 import logging
+import os
 import platform
+import re
 import uuid
 from bleak import BleakClient, BleakError, BleakScanner
 from bleak.backends import BleakBackend
@@ -16,6 +22,18 @@ from bleak_retry_connector import establish_connection
 from struct import pack, unpack
 from typing import Callable
 from enum import Enum
+from dataclasses import dataclass
+
+try:
+    from cryptography.hazmat.primitives.asymmetric.x25519 import (
+        X25519PrivateKey,
+        X25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+except ImportError:
+    X25519PrivateKey = None
+    X25519PublicKey = None
+    AESCCM = None
 
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
@@ -33,6 +51,8 @@ UUID_ZIGBEE_ADDRESS = "97fe6561-0001-4f62-86e9-b71ee2da3d22"
 UUID_NAME = "97fe6561-0003-4f62-86e9-b71ee2da3d22"
 
 #: Power state of light. Is subscribable. x00 and x01. Handle 49.
+UUID_LIGHT_CONTROL_INFO = "932c32bd-0001-47a2-835a-a8d455b859dd"
+
 UUID_POWER = "932c32bd-0002-47a2-835a-a8d455b859dd"
 
 #: Brightness of light. Int 0-255. Handle 52.
@@ -47,6 +67,11 @@ UUID_XY_COLOUR = "932c32bd-0005-47a2-835a-a8d455b859dd"
 #: new colour change and effect enpoint
 UUID_EFFECTS = "932c32bd-0007-47a2-835a-a8d455b859dd"
 
+UUID_ZD_AUTHENTICATE = "29144af4-0002-4481-bfe9-6d0299b429e3"
+UUID_DLC_KEY = "97fe6561-2005-4f62-86e9-b71ee2da3d22"
+DLC_ALS_METHOD_TLV = bytes.fromhex("64 04 0b 10 00 02 f4")
+
+
 #: This is a UUID that as far as I know only hue lights use and it shows up
 #: under BLE Device details and as such does not require connecting to check
 #: for. The UUID also has the following service data. I am not sure what it
@@ -54,12 +79,10 @@ UUID_EFFECTS = "932c32bd-0007-47a2-835a-a8d455b859dd"
 #: \x02\x10\x0e\xbe\x02
 UUID_HUE_IDENTIFIER = "0000fe0f-0000-1000-8000-00805f9b34fb"
 
-#: The assumed minimum colour temperature of the light in mireds.
-#: Constant as it us unknown if/where the light exposes this data.
+#: Fallback minimum colour temperature when the light does not expose a range.
 MIN_MIREDS = 153
 
-#: The assumed maximum colour temperature of the light in mireds.
-#: Constant as it us unknown if/where the light exposes this data.
+#: Fallback maximum colour temperature when the light does not expose a range.
 MAX_MIREDS = 500
 
 #: Default string of light metadata light address, model, and firmware.
@@ -239,11 +262,220 @@ class CallbackError(HueBleError):
     pass
 
 
+class DlcError(HueBleError):
+    pass
+
+
+@dataclass(frozen=True)
+class _DlcCredentials:
+    key: bytes
+    zigbee_eui64: bytes
+    name: str | None = None
+
+
+@dataclass
+class _AlsSession:
+    key: bytes
+    ieee_init: bytes
+    ieee_resp: bytes
+    tx_counter: int = 0
+    rx_counter: int = 0
+
+
+_DLC_PLAINTEXT_UUIDS = {
+    "00002a29-0000-1000-8000-00805f9b34fb",
+    "00002a24-0000-1000-8000-00805f9b34fb",
+    "00002a28-0000-1000-8000-00805f9b34fb",
+    "00002a00-0000-1000-8000-00805f9b34fb",
+    "00002a01-0000-1000-8000-00805f9b34fb",
+    "00002a05-0000-1000-8000-00805f9b34fb",
+    "00002b29-0000-1000-8000-00805f9b34fb",
+    "00002b2a-0000-1000-8000-00805f9b34fb",
+    "97fe6561-0001-4f62-86e9-b71ee2da3d22",
+    "97fe6561-2001-4f62-86e9-b71ee2da3d22",
+    "97fe6561-2002-4f62-86e9-b71ee2da3d22",
+    "97fe6561-a002-4f62-86e9-b71ee2da3d22",
+    "29144af4-0002-4481-bfe9-6d0299b429e3",
+    "89e6c2bd-0001-4f1e-aee0-2fa77c87cf7c",
+    "18ee2ef5-263d-4559-959f-4f9c429f9d11",
+    "18ee2ef5-263d-4559-959f-4f9c429f9d12",
+    "64630238-8772-45f2-b87d-748a83218f04",
+}
+
+
+def _parse_tlvs(data: bytes) -> list[tuple[int, bytes]]:
+    result = []
+    offset = 0
+    while offset < len(data):
+        if offset + 2 > len(data):
+            raise DlcError("Truncated DLC TLV")
+        tag, length = data[offset : offset + 2]
+        offset += 2
+        end = offset + length
+        if end > len(data):
+            raise DlcError("Invalid DLC TLV length")
+        result.append((tag, data[offset:end]))
+        offset = end
+    return result
+
+
+def _parse_dlc_uri(uri: str) -> _DlcCredentials:
+    prefix = "hue://dlc?"
+    if not uri.startswith(prefix):
+        raise DlcError("DLC URI must start with hue://dlc?")
+
+    encoded = uri[len(prefix) :].strip()
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except binascii.Error as e:
+        raise DlcError("Invalid DLC URI") from e
+
+    outer = dict(_parse_tlvs(raw))
+    if 0x00 not in outer:
+        raise DlcError("DLC URI has no shared-light record")
+
+    fields = dict(_parse_tlvs(outer[0x00]))
+    key = fields.get(0x0C)
+    eui = fields.get(0x0D)
+
+    if key is None or len(key) != 16:
+        raise DlcError("DLC key must be 16 bytes")
+    if eui is None or len(eui) != 8:
+        raise DlcError("DLC Zigbee EUI must be 8 bytes")
+
+    name = fields.get(0x0B)
+    return _DlcCredentials(
+        key=bytes(key),
+        zigbee_eui64=bytes(eui),
+        name=name.decode("utf-8", "replace") if name else None,
+    )
+
+
+def _zd_tlv(tag: int, value: bytes) -> bytes:
+    return bytes((tag, len(value) - 1)) + value
+
+
+def _parse_zd_tlvs(data: bytes) -> list[tuple[int, bytes]]:
+    result = []
+    offset = 0
+    while offset < len(data):
+        if offset + 2 > len(data):
+            raise DlcError("Truncated Zigbee Direct TLV")
+        tag = data[offset]
+        length = data[offset + 1] + 1
+        offset += 2
+        end = offset + length
+        if end > len(data):
+            raise DlcError("Invalid Zigbee Direct TLV length")
+        result.append((tag, data[offset:end]))
+        offset = end
+    return result
+
+
+def _x25519(private_key: bytes, public_key: bytes) -> bytes:
+    private = X25519PrivateKey.from_private_bytes(private_key)
+    public = X25519PublicKey.from_public_bytes(public_key)
+    return private.exchange(public)
+
+
+def _zvd_address(device_id: str) -> bytes:
+    value = re.sub(r"[^0-9A-Fa-f]", "", device_id).lower()
+    if not value:
+        raise DlcError("Unable to derive Zigbee Direct address")
+    return bytes.fromhex(value.ljust(16, "c")[:16])[::-1]
+
+
+def _compare_ieee(a: bytes, b: bytes) -> int:
+    for i in range(7, -1, -1):
+        if a[i] != b[i]:
+            return -1 if a[i] < b[i] else 1
+    return 0
+
+
+def _session_identifier(
+    ieee_init: bytes,
+    ieee_resp: bytes,
+    public_init: bytes,
+    public_resp: bytes,
+) -> bytes:
+    if _compare_ieee(ieee_resp, ieee_init) <= 0:
+        return ieee_resp + public_resp + ieee_init + public_init
+    return ieee_init + public_init + ieee_resp + public_resp
+
+
+def _derive_session_key(
+    psk: bytes,
+    ieee_init: bytes,
+    ieee_resp: bytes,
+    private_init: bytes,
+    public_init: bytes,
+    public_resp: bytes,
+) -> bytes:
+    generator = hashlib.sha256(psk).digest()
+    shared = _x25519(private_init, public_resp)
+    identifier = _session_identifier(ieee_init, ieee_resp, public_init, public_resp)
+    intermediate = hashlib.sha256(shared + identifier + generator).digest()
+    return hmac.new(intermediate, b"\x01", hashlib.sha256).digest()[:16]
+
+
+def _confirmation_mac(
+    initiator: bool,
+    session_key: bytes,
+    ieee_init: bytes,
+    ieee_resp: bytes,
+    public_init: bytes,
+    public_resp: bytes,
+) -> bytes:
+    label = b"KC_2_U" if initiator else b"KC_2_V"
+    data = label + ieee_resp + public_resp + ieee_init + public_init
+    return hmac.new(session_key, data, hashlib.sha256).digest()
+
+
+def _uuid_bytes(value: str) -> bytes:
+    return bytes.fromhex(value.replace("-", ""))
+
+
+def _associated_data(service_uuid: str, characteristic_uuid: str) -> bytes:
+    return (
+        _uuid_bytes(service_uuid) + b"\x00" + _uuid_bytes(characteristic_uuid) + b"\x00"
+    )
+
+
+def _nonce(ieee: bytes, counter: int) -> bytes:
+    return ieee + counter.to_bytes(4, "little") + b"\x05"
+
+
+def _parse_light_control_info(data: bytes) -> tuple[int | None, int | None]:
+    minimum = None
+    maximum = None
+    i = 0
+
+    while i + 2 <= len(data):
+        field = data[i]
+        length = data[i + 1]
+        start = i + 2
+        end = start + length
+
+        if end > len(data):
+            break
+
+        value = data[start:end]
+
+        if field == 0x01 and length == 2:
+            minimum = int.from_bytes(value, "little")
+        elif field == 0x02 and length == 2:
+            maximum = int.from_bytes(value, "little")
+
+        i = end
+
+    return minimum, maximum
+
+
 class HueBleLight(object):
     """Philips Hue BLE Light object."""
 
-    def __init__(self, ble_device: BLEDevice):
-        """Initialise light object. Does not connect automatically."""
+    def __init__(self, ble_device: BLEDevice, dlc_uri: str | None = None):
+        """Initialise light object. dlc_uri enables shared-light authentication."""
 
         _LOGGER.debug(
             f"""Initializing Hue light "{ble_device.name}" with"""
@@ -253,6 +485,11 @@ class HueBleLight(object):
 
         self._ble_device = ble_device
         self._client: BleakClient = None
+        self._dlc_credentials = _parse_dlc_uri(dlc_uri) if dlc_uri else None
+        self._als_session: _AlsSession | None = None
+
+        if self._dlc_credentials is not None and AESCCM is None:
+            raise DlcError("DLC support requires the cryptography package")
         self._manufacturer = None
         self._model = None
         self._fw = None
@@ -316,6 +553,8 @@ class HueBleLight(object):
             )
             return
 
+        self._als_session = None
+
         # If we expected the disconnect then we don't try to reconnect.
         if self._expect_disconnect:
             _LOGGER.info(f"""Received expected disconnect from "{client}".""")
@@ -356,6 +595,145 @@ class HueBleLight(object):
         await asyncio.sleep(reconnect_delay)
         await self.connect()
 
+    async def _wait_for_als_packet(
+        self, queue: asyncio.Queue[bytes], opcode: int, timeout: float = 8.0
+    ) -> bytes:
+        async with asyncio.timeout(timeout):
+            while True:
+                packet = await queue.get()
+                if packet and packet[0] == opcode:
+                    return packet
+
+    async def _authorize_dlc(self) -> None:
+        creds = self._dlc_credentials
+        if creds is None:
+            return
+
+        if self._client.services.get_characteristic(UUID_ZD_AUTHENTICATE) is None:
+            raise DlcError("Light does not expose Zigbee Direct authentication")
+
+        queue: asyncio.Queue[bytes] = asyncio.Queue()
+
+        def notify(_, data: bytearray):
+            queue.put_nowait(bytes(data))
+
+        ieee_init = _zvd_address(self.address)
+        private_init = os.urandom(32)
+        generator = hashlib.sha256(creds.key).digest()
+        public_init = _x25519(private_init, generator)
+
+        await self._client.start_notify(UUID_ZD_AUTHENTICATE, notify)
+        try:
+            message = (
+                b"\x01" + DLC_ALS_METHOD_TLV + _zd_tlv(0x02, ieee_init + public_init)
+            )
+            await self._client.write_gatt_char(
+                UUID_ZD_AUTHENTICATE, message, response=True
+            )
+
+            response = await self._wait_for_als_packet(queue, 0x02)
+            tlvs = _parse_zd_tlvs(response[1:])
+            point = next((value for tag, value in tlvs if tag == 0x02), None)
+            if point is None or len(point) != 40:
+                raise DlcError("Invalid ALS public-point response")
+
+            ieee_resp, public_resp = point[:8], point[8:]
+            session_key = _derive_session_key(
+                creds.key,
+                ieee_init,
+                ieee_resp,
+                private_init,
+                public_init,
+                public_resp,
+            )
+
+            mac_i = _confirmation_mac(
+                True,
+                session_key,
+                ieee_init,
+                ieee_resp,
+                public_init,
+                public_resp,
+            )
+            expected_mac_r = _confirmation_mac(
+                False,
+                session_key,
+                ieee_init,
+                ieee_resp,
+                public_init,
+                public_resp,
+            )
+
+            await self._client.write_gatt_char(
+                UUID_ZD_AUTHENTICATE,
+                b"\x03" + _zd_tlv(0x04, mac_i),
+                response=True,
+            )
+
+            response = await self._wait_for_als_packet(queue, 0x04)
+            tlvs = _parse_zd_tlvs(response[1:])
+            mac_r = next((value for tag, value in tlvs if tag == 0x04), None)
+            if mac_r is None or not hmac.compare_digest(mac_r, expected_mac_r):
+                raise DlcError("ALS responder authentication failed")
+
+            self._als_session = _AlsSession(
+                key=session_key,
+                ieee_init=ieee_init,
+                ieee_resp=ieee_resp,
+            )
+        finally:
+            try:
+                await self._client.stop_notify(UUID_ZD_AUTHENTICATE)
+            except Exception:
+                pass
+
+    def _secure_characteristic(self, characteristic_uuid: str) -> bool:
+        return (
+            self._als_session is not None
+            and characteristic_uuid.lower() not in _DLC_PLAINTEXT_UUIDS
+        )
+
+    def _service_uuid(self, characteristic_uuid: str) -> str:
+        target = characteristic_uuid.lower()
+        for service in self._client.services:
+            for characteristic in service.characteristics:
+                if characteristic.uuid.lower() == target:
+                    return service.uuid
+        raise DlcError(f"Unknown characteristic {characteristic_uuid}")
+
+    def _decrypt_gatt(self, characteristic_uuid: str, data: bytes) -> bytes:
+        if not self._secure_characteristic(characteristic_uuid):
+            return bytes(data)
+        if len(data) < 8:
+            raise DlcError("Encrypted GATT value is too short")
+
+        session = self._als_session
+        counter = int.from_bytes(data[:4], "little")
+        aad = _associated_data(
+            self._service_uuid(characteristic_uuid), characteristic_uuid
+        )
+        plaintext = AESCCM(session.key, tag_length=4).decrypt(
+            _nonce(session.ieee_resp, counter), data[4:], aad
+        )
+        if counter > session.rx_counter:
+            session.rx_counter = counter
+        return plaintext
+
+    def _encrypt_gatt(self, characteristic_uuid: str, data: bytes) -> bytes:
+        if not self._secure_characteristic(characteristic_uuid):
+            return bytes(data)
+
+        session = self._als_session
+        session.tx_counter += 1
+        counter = session.tx_counter
+        aad = _associated_data(
+            self._service_uuid(characteristic_uuid), characteristic_uuid
+        )
+        encrypted = AESCCM(session.key, tag_length=4).encrypt(
+            _nonce(session.ieee_init, counter), bytes(data), aad
+        )
+        return counter.to_bytes(4, "little") + encrypted
+
     async def _subscribe_to_light(self) -> None:
         """Subscribes to the state of the light.
         Automatically called on connect.
@@ -366,6 +744,7 @@ class HueBleLight(object):
         if self.supports_on_off:
 
             def report(cHandle: int, data: bytearray) -> None:
+                data = self._decrypt_gatt(UUID_POWER, data)
                 self._power_on = bool(data[0])
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -380,6 +759,7 @@ class HueBleLight(object):
         if self.supports_brightness:
 
             def report(cHandle: int, data: bytearray) -> None:
+                data = self._decrypt_gatt(UUID_BRIGHTNESS, data)
                 self._brightness = data[0]
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -394,6 +774,7 @@ class HueBleLight(object):
         if self.supports_colour_temp:
 
             def report(cHandle: int, data: bytearray) -> None:
+                data = self._decrypt_gatt(UUID_TEMPERATURE, data)
                 self._colour_temp = int.from_bytes(data, "little")
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -408,6 +789,7 @@ class HueBleLight(object):
         if self.supports_colour_xy:
 
             def report(cHandle: int, data: bytearray) -> None:
+                data = self._decrypt_gatt(UUID_XY_COLOUR, data)
                 x, y = unpack("<HH", data)
                 self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                 _LOGGER.debug(
@@ -423,6 +805,7 @@ class HueBleLight(object):
         if self.supports_effects:
 
             def report(cHandle: int, data: bytearray) -> None:
+                data = self._decrypt_gatt(UUID_EFFECTS, data)
                 # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
                 effect_state_changed = False
 
@@ -580,6 +963,7 @@ class HueBleLight(object):
 
                             # Make a fresh bleak client and connect
                             try:
+                                self._als_session = None
                                 self._client = await establish_connection(
                                     BleakClient,
                                     device=self._ble_device,
@@ -603,9 +987,12 @@ class HueBleLight(object):
                                     f"""Failed to make an initial connection to the light "{self.name}". E: "{e}"."""
                                 ) from e
 
-                            # Attempt to pair if not paired
-                            _LOGGER.debug("Attempting to pair to the light...")
-                            await self.pair()
+                            if self._dlc_credentials is not None:
+                                _LOGGER.debug("Authorizing DLC session...")
+                                await self._authorize_dlc()
+                            else:
+                                _LOGGER.debug("Attempting to pair to the light...")
+                                await self.pair()
 
                             # Determine what features the light supports
                             try:
@@ -669,6 +1056,9 @@ class HueBleLight(object):
 
     async def pair(self):
         """Pair to light if not paired and raise PairingError on failure."""
+
+        if self._dlc_credentials is not None:
+            return
 
         # If paired return
         if self.authenticated is True:
@@ -797,6 +1187,21 @@ class HueBleLight(object):
                 f"""Light "{self.name}" does not appear to """
                 f"""support polling the light name."""
             )
+        if (
+            self._client.services.get_characteristic(UUID_LIGHT_CONTROL_INFO)
+            is not None
+        ):
+            try:
+                info = await self._read_gatt(UUID_LIGHT_CONTROL_INFO)
+                minimum, maximum = _parse_light_control_info(info)
+
+                if minimum is not None:
+                    self._minimum_mireds = minimum
+                if maximum is not None:
+                    self._maximum_mireds = maximum
+            except Exception as e:
+                _LOGGER.debug(f"Unable to read light control info: {e}")
+
         if self._client.services.get_characteristic(UUID_POWER) is not None:
             self._power_on = False
         else:
@@ -859,6 +1264,8 @@ class HueBleLight(object):
             _LOGGER.exception(
                 f"""BleakError attempting to disconnect from "{self.name}"."""
             )
+
+        self._als_session = None
 
         # Throw away the client
         self._client = None
@@ -1001,7 +1408,8 @@ class HueBleLight(object):
             try:
                 async with asyncio.timeout(attempt_timeout):
                     await self.connect()
-                    return await self._client.read_gatt_char(property)
+                    data = await self._client.read_gatt_char(property)
+                    return self._decrypt_gatt(property, data)
 
             except Exception as e:
                 _LOGGER.debug(
@@ -1030,8 +1438,9 @@ class HueBleLight(object):
             try:
                 async with asyncio.timeout(attempt_timeout):
                     await self.connect()
+                    payload = self._encrypt_gatt(property, data)
                     return await self._client.write_gatt_char(
-                        property, data, response=True
+                        property, payload, response=True
                     )
 
             except Exception as e:
@@ -1055,9 +1464,12 @@ class HueBleLight(object):
             _LOGGER.debug("[Service] %s", service)
 
             for char in service.characteristics:
-                if "read" in char.properties:
+                if char.uuid.lower() == UUID_DLC_KEY:
+                    extra = ", Value: <redacted>"
+                elif "read" in char.properties:
                     try:
                         value = await self._client.read_gatt_char(char.uuid)
+                        value = self._decrypt_gatt(char.uuid, value)
                         extra = f", Value: {value}"
                     except Exception as e:
                         extra = f", Error: {e}"
@@ -1262,7 +1674,6 @@ class HueBleLight(object):
         if transition_ms is None:
             await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
             return
-
         buf = (
             bytes.fromhex(EffectCommands.BRIGHTNESS.value)
             + bytes([brightness])
@@ -1273,9 +1684,11 @@ class HueBleLight(object):
     async def set_colour_temp(
         self, colour_temp: int, transition_ms: int | None = None
     ):
-        """Sets the temperature from an int between 153 and 500.
-        Uses mireds."""
-        temp = max(min(int(colour_temp), 500), 153)
+        """Sets the colour temperature in mireds within the light's supported range."""
+        temp = max(
+            min(int(colour_temp), self._maximum_mireds),
+            self._minimum_mireds,
+        )
         data = temp.to_bytes(2, "little")
         if transition_ms is None:
             await self._write_gatt(UUID_TEMPERATURE, data)
@@ -1460,6 +1873,9 @@ class HueBleLight(object):
         On non-Linux systems it is assumed we are authenticated!.
         """
         if self.connected:
+            if self._dlc_credentials is not None:
+                return self._als_session is not None
+
             authenticated = self.authenticated
 
             # If we do not know the auth status assume it is ok
@@ -1539,10 +1955,7 @@ class HueBleLight(object):
 
     @property
     def minimum_mireds(self) -> int | None:
-        """Minimum mireds colour temperature supported.
-        Returns None if the feature is not supported by the light.
-        This value is assumed and not actually polled from the light.
-        """
+        """Minimum supported colour temperature in mireds."""
         if self.supports_colour_temp:
             return self._minimum_mireds
         else:
@@ -1550,10 +1963,7 @@ class HueBleLight(object):
 
     @property
     def maximum_mireds(self) -> int | None:
-        """Maximum mireds colour temperature supported.
-        Returns None if the feature is not supported by the light.
-        This value is assumed and not actually polled from the light.
-        """
+        """Maximum supported colour temperature in mireds."""
         if self.supports_colour_temp:
             return self._maximum_mireds
         else:
