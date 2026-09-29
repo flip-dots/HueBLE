@@ -162,9 +162,11 @@ class EffectType(Enum):
     CANDLE = 0x01
     FIREPLACE = 0x02
     PRISM = 0x03
+    SUNRISE = 0x09
     SPARKLE = 0x0A
     OPAL = 0x0B
     GLISTEN = 0x0C
+    SUNSET = 0x0D
     UNDERWATER = 0x0E
     COSMOS = 0x0F
     SUNBEAM = 0x10
@@ -184,8 +186,24 @@ class EffectCommands(Enum):
     BRIGHTNESS = "0201"
     TEMPERATURE = "0302"
     COLOURXY = "0404"
+    TRANSITION_TIME = "0502"
     EFFECT = "0601"
     EFFECT_SPEED = "0801"
+
+
+def _transition_tlv(transition_ms: int) -> bytes:
+    if not isinstance(transition_ms, int):
+        raise TypeError("transition_ms must be an integer")
+    if transition_ms < 0 or transition_ms % 100 != 0:
+        raise ValueError("transition_ms must be a non-negative multiple of 100")
+
+    units = transition_ms // 100
+    if units > 0xFFFF:
+        raise ValueError("transition_ms is too large")
+
+    return bytes.fromhex(EffectCommands.TRANSITION_TIME.value) + units.to_bytes(
+        2, "little"
+    )
 
 
 class HueBleError(Exception):
@@ -1635,30 +1653,78 @@ class HueBleLight(object):
         """Sets the name of the light. Not tested, use at own risk."""
         await self._write_gatt(UUID_NAME, str.encode(name))
 
-    async def set_power(self, on: bool):
+    async def set_power(self, on: bool, transition_ms: int | None = None):
         """Sets the power state of the light."""
-        await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
+        if transition_ms is None:
+            await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
+            return
 
-    async def set_brightness(self, brightness: int):
+        buf = (
+            bytes.fromhex(EffectCommands.ONOFF.value)
+            + bytes([1 if on else 0])
+            + _transition_tlv(transition_ms)
+        )
+        await self._write_gatt(UUID_EFFECTS, buf)
+
+    async def set_brightness(
+        self, brightness: int, transition_ms: int | None = None
+    ):
         """Sets the brightness from an integer between 0 and 255"""
-        await self._write_gatt(UUID_BRIGHTNESS, bytes([max(min(brightness, 254), 1)]))
+        brightness = max(min(brightness, 254), 1)
+        if transition_ms is None:
+            await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
+            return
+        buf = (
+            bytes.fromhex(EffectCommands.BRIGHTNESS.value)
+            + bytes([brightness])
+            + _transition_tlv(transition_ms)
+        )
+        await self._write_gatt(UUID_EFFECTS, buf)
 
-    async def set_colour_temp(self, colour_temp: int):
+    async def set_colour_temp(
+        self, colour_temp: int, transition_ms: int | None = None
+    ):
         """Sets the colour temperature in mireds within the light's supported range."""
         temp = max(
             min(int(colour_temp), self._maximum_mireds),
             self._minimum_mireds,
         )
-        y = temp.to_bytes(2, "little")
-        await self._write_gatt(UUID_TEMPERATURE, y)
+        data = temp.to_bytes(2, "little")
+        if transition_ms is None:
+            await self._write_gatt(UUID_TEMPERATURE, data)
+            return
 
-    async def set_colour_xy(self, x: float, y: float):
+        buf = (
+            bytes.fromhex(EffectCommands.TEMPERATURE.value)
+            + data
+            + _transition_tlv(transition_ms)
+        )
+        await self._write_gatt(UUID_EFFECTS, buf)
+
+    async def set_colour_xy(
+        self, x: float, y: float, transition_ms: int | None = None
+    ):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
-        buf = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
-        await self._write_gatt(UUID_XY_COLOUR, buf)
+        data = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
+        if transition_ms is None:
+            await self._write_gatt(UUID_XY_COLOUR, data)
+            return
+
+        buf = (
+            bytes.fromhex(EffectCommands.COLOURXY.value)
+            + data
+            + _transition_tlv(transition_ms)
+        )
+        await self._write_gatt(UUID_EFFECTS, buf)
 
     async def set_colour_effect(
-        self, x: float, y: float, brightness: int, effect: EffectType, effect_speed: int
+        self,
+        x: float,
+        y: float,
+        brightness: int,
+        effect: EffectType,
+        effect_speed: int,
+        transition_ms: int | None = None,
     ):
         """
         Sets XY colour, brightness, effect and effect speed.
@@ -1682,7 +1748,7 @@ class HueBleLight(object):
                 bytes.fromhex(EffectCommands.EFFECT.value),
                 max(min(effect.value, 254), 1),
                 bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 254), 1),
+                max(min(effect_speed, 255), 0),
             )
         else:
             # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
@@ -1696,10 +1762,17 @@ class HueBleLight(object):
                 int(x * 0xFFFF),
                 int(y * 0xFFFF),
             )
+        if transition_ms is not None:
+            buf += _transition_tlv(transition_ms)
         await self._write_gatt(UUID_EFFECTS, buf)
 
     async def set_temperature_effect(
-        self, colour_temp: int, brightness: int, effect: EffectType, effect_speed: int
+        self,
+        colour_temp: int,
+        brightness: int,
+        effect: EffectType,
+        effect_speed: int,
+        transition_ms: int | None = None,
     ):
         """
         Sets colour temperature, brightness, effect and effect speed.
@@ -1723,7 +1796,7 @@ class HueBleLight(object):
                 bytes.fromhex(EffectCommands.EFFECT.value),
                 max(min(effect.value, 254), 1),
                 bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 254), 1),
+                max(min(effect_speed, 255), 0),
             )
         else:
             # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
@@ -1736,6 +1809,8 @@ class HueBleLight(object):
                 bytes.fromhex(EffectCommands.TEMPERATURE.value),
                 temperature,
             )
+        if transition_ms is not None:
+            buf += _transition_tlv(transition_ms)
         await self._write_gatt(UUID_EFFECTS, buf)
 
     @property
