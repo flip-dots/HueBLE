@@ -129,6 +129,10 @@ UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
 #: data stream unpack format string for decoding plain temperature without effect (effect API)
 UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
 
+#: data stream unpack format string for decoding the onoff-only report (effect API),
+#: sent by devices that only support on/off, e.g. the Hue smart plug
+UNPACK_EFFECT_API_ONOFF_ONLY = "<xxB"
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -493,10 +497,19 @@ class HueBleLight(object):
                         f"""Light "{self.name}" has informed us of a new"""
                         f""" colour temp state of ({self.colour_temp})"""
                     )
+                elif len(data) == 3:
+                    # device only reports its onoff value (e.g. smart plug)
+                    onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, data)[0]
+                    self._power_on = bool(onoff)
+
+                    _LOGGER.debug(
+                        f"""Light "{self.name}" has informed us of a new"""
+                        f""" power state ({self._power_on})"""
+                    )
                 else:
                     # so far unkown
                     _LOGGER.warning(
-                        "unrecognized effect response with length {len(data)}: {data}"
+                        f"unrecognized effect response with length {len(data)}: {data}"
                     )
 
                 if effect_state_changed:
@@ -1228,6 +1241,11 @@ class HueBleLight(object):
             )
             if write_state:
                 self._colour_temp = colour_temp
+                self._power_on = bool(onoff)
+        elif len(buf) == 3:
+            # device only reports its onoff value (e.g. smart plug)
+            onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, buf)[0]
+            if write_state:
                 self._power_on = bool(onoff)
         else:
             # so far unkown

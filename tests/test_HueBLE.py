@@ -393,6 +393,26 @@ async def test_commands(
             },
             id="unknown_effect",
         ),
+        pytest.param(
+            {
+                HueBLE.UUID_MANUFACTURER: "Philippe Hue".encode(),
+                HueBLE.UUID_MODEL: "Fancy new light".encode(),
+                HueBLE.UUID_FW_VERSION: "1.7.10".encode(),
+                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.UUID_NAME: "L A M P".encode(),
+                # on/off-only device (e.g. smart plug): only the onoff TLV is reported
+                HueBLE.UUID_EFFECTS: bytes.fromhex("010100"),
+            },
+            {
+                "manufacturer": "Philippe Hue",
+                "model": "Fancy new light",
+                "firmware": "1.7.10",
+                "zigbee_address": "00:01:02:03:04:05:06:07:08:09",
+                "name_in_app": "L A M P",
+                "power_state": False,
+            },
+            id="effect_onoff_only",
+        ),
     ],
 )
 async def test_poll_state(
