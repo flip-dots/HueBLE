@@ -15,7 +15,8 @@ Python module for controlling Bluetooth Philips Hue lights.
 
 This Python module enables you to control Philips Hue Bluetooth lights directly
 from your computer, without the need for a Hue bridge or ZigBee dongle.
-It leverages the Bleak library to interact with Bluetooth Philips Hue lights.
+It leverages the Bleak library to interact with Bluetooth Philips Hue lights including 
+the smart plugs.
 
 
 ## Features
@@ -30,6 +31,7 @@ It leverages the Bleak library to interact with Bluetooth Philips Hue lights.
 - ⚙️ Light configuration (name)
 - 📊 Light metadata (manufacturer/model/zigbee address)
 - 🤜 Supports push & polling models
+- 🔌 Hue smart plug support
 - 🔂 Simple structure
 - 📜 Mediocre documentation
 - ✔️ More emojis than strictly necessary
