@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+Unreleased
+==========
+
+Fixed
+-----
+
+* Handle the 3 byte (onoff only) effect characteristic report sent by on/off only devices such as the Hue smart plug, instead of logging an "unrecognized effect response" warning on every poll.
+* Fixed missing f-string prefix in the unrecognized effect response warning of the notification callback.
+
 `2.2.3`_ (2026-08-21)
 =====================
 
