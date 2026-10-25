@@ -7,6 +7,16 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+
+`2.3.0`_ (2026-10-25)
+=====================
+
+Added
+-----
+
+* Added support for setting the transition duration when setting power state, brightness, colour temperature, colour, or effects.
+
+
 `2.2.4`_ (2026-10-25)
 =====================
 
@@ -245,6 +255,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.3.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.3.0
 .. _2.2.4: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.4
 .. _2.2.3: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.3
 .. _2.2.2: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.2
