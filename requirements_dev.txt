@@ -4,3 +4,4 @@ pytest-cov
 bleak
 bleak-retry-connector
 dbus-fast
+cryptography

@@ -23,13 +23,14 @@ the smart plugs.
 
 - 💡 On/Off control
 - 🌗 Brightness control
-- 🌡️ Colour temp control 
+- 🌡️ Colour temp control
 - 🌈 XY colour control
 - ✨ Built-in effects with custom colour and speed
 - ⏱️ Custom transitions, including instant changes
 - ❔ Light state (power/brightness/temp/colour)
 - ⚙️ Light configuration (name)
 - 📊 Light metadata (manufacturer/model/zigbee address)
+- 🔐 DLC/ALS authentication for shared Hue lights
 - 🤜 Supports push & polling models
 - 🔌 Hue smart plug support
 - 🔂 Simple structure
@@ -42,16 +43,17 @@ the smart plugs.
 - 🐍 Python 3.11+
 - 📶 Bleak 0.19.0+
 - 📶 bleak-retry-connector
+- 🔐 cryptography
 
 
 ## Supported Operating Systems
 
 - 🐧 Linux (BlueZ)
   - Ubuntu Desktop (24.04)
-  - Arch 
+  - Arch
   - Buildroot (HomeAssistant OS)
 - 🏢 Windows
-  - Windows 10 
+  - Windows 10
 - 💾 Mac OSX
   - Sequoia (15.7)
 - 🛜 ESPHome (Bluetooth Proxy)
@@ -81,7 +83,7 @@ same directory as your program. If you are using manual installation make sure
 the dependencies are installed as well.
 
 ```
-pip install bleak bleak-retry-connector dbus-fast
+pip install bleak bleak-retry-connector dbus-fast cryptography
 ```
 
 
@@ -128,8 +130,29 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 ```
+
+
+### Shared lights / DLC authentication
+
+Newer Hue lights may use a `hue://dlc` sharing credential instead of
+Bluetooth bonding.
+
+Pass the URI when creating the light:
+
+```python
+light = HueBLE.HueBleLight(
+    device,
+    dlc_uri="hue://dlc?...",
+)
+```
+
+HueBLE will establish the ALS session automatically on connection and
+re-establish it after reconnecting.
+
+> [!WARNING]
+> The DLC URI contains authentication material. Treat it as a secret and
+> do not commit it to source control.
 
 
 ### Transitions
@@ -167,7 +190,7 @@ Effect speed ranges from `0` (slowest) to `255` (fastest).
 
 ### Demo program
 
-A more fully featured demo program can be found in  ``` examples/demo.py ``` which demonstrates all of the implemented features.
+A more fully featured demo program can be found in `examples/demo.py` which demonstrates all of the implemented features.
 
 
 ## Disclaimer
