@@ -13,6 +13,7 @@ from bleak.backends import BleakBackend
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
+from construct import Struct, Int8ub, Prefixed, GreedyBytes, GreedyRange
 from struct import pack, unpack
 from typing import Callable
 from enum import Enum
@@ -170,6 +171,9 @@ class EffectCommands(Enum):
     TRANSITION_TIME = "0502"
     EFFECT = "0601"
     EFFECT_SPEED = "0801"
+
+
+TLV = GreedyRange(Struct("tag" / Int8ub, "value" / Prefixed(Int8ub, GreedyBytes)))
 
 
 def _transition_tlv(transition_ms: int) -> bytes:
@@ -429,6 +433,10 @@ class HueBleLight(object):
             def report(cHandle: int, data: bytearray) -> None:
                 # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
                 effect_state_changed = False
+
+                tlv = TLV.parse(data)
+                _LOGGER.debug(f"Effect bytes: {data.hex()}")
+                _LOGGER.debug(f"TLV: {tlv}")
 
                 # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
                 if len(data) == 18:
@@ -1272,9 +1280,7 @@ class HueBleLight(object):
         )
         await self._write_gatt(UUID_EFFECTS, buf)
 
-    async def set_brightness(
-        self, brightness: int, transition_ms: int | None = None
-    ):
+    async def set_brightness(self, brightness: int, transition_ms: int | None = None):
         """Sets the brightness from an integer between 0 and 255"""
         brightness = max(min(brightness, 254), 1)
         if transition_ms is None:
@@ -1288,9 +1294,7 @@ class HueBleLight(object):
         )
         await self._write_gatt(UUID_EFFECTS, buf)
 
-    async def set_colour_temp(
-        self, colour_temp: int, transition_ms: int | None = None
-    ):
+    async def set_colour_temp(self, colour_temp: int, transition_ms: int | None = None):
         """Sets the temperature from an int between 153 and 500.
         Uses mireds."""
         temp = max(min(int(colour_temp), 500), 153)
@@ -1306,9 +1310,7 @@ class HueBleLight(object):
         )
         await self._write_gatt(UUID_EFFECTS, buf)
 
-    async def set_colour_xy(
-        self, x: float, y: float, transition_ms: int | None = None
-    ):
+    async def set_colour_xy(self, x: float, y: float, transition_ms: int | None = None):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
         data = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
         if transition_ms is None:
