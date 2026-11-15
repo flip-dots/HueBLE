@@ -5,18 +5,37 @@
 """
 
 import asyncio
+import enum
 import logging
 import platform
 import uuid
+from collections.abc import Callable
+from enum import Enum
+from struct import pack, unpack
+from typing import Any
+
 from bleak import BleakClient, BleakError, BleakScanner
 from bleak.backends import BleakBackend
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
-from construct import Struct, Int8ub, Prefixed, GreedyBytes, GreedyRange
-from struct import pack, unpack
-from typing import Callable
-from enum import Enum
+from construct import (
+    Container,
+    Default,
+    ExprAdapter,
+    Flag,
+    GreedyBytes,
+    GreedyRange,
+    Int8ul,
+    Int16ul,
+    ListContainer,
+    Prefixed,
+    Struct,
+    Switch,
+)
+from construct import (
+    Enum as ConstructEnum,
+)
 
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
@@ -173,7 +192,73 @@ class EffectCommands(Enum):
     EFFECT_SPEED = "0801"
 
 
-TLV = GreedyRange(Struct("tag" / Int8ub, "value" / Prefixed(Int8ub, GreedyBytes)))
+class TLVTag(enum.IntEnum):
+    ON_OFF = 1
+    BRIGHTNESS = 2
+    COLOUR_TEMP = 3
+    COLOUR_XY = 4
+    EFFECT_TYPE = 6
+    EFFECT_SPEED = 8
+
+
+class TLVEffectType(enum.IntEnum):
+    NONE = 0
+    CANDLE = 1
+    FIREPLACE = 2
+    PRISM = 3
+    SUNRISE = 9
+    SPARKLE = 10
+    OPAL = 11
+    GLISTEN = 12
+    SUNSET = 13
+    UNDERWATER = 14
+    COSMOS = 15
+    SUNBEAM = 16
+    ENCHANT = 17
+
+
+class TLVListContainer(ListContainer):
+
+    def get(self, key: TLVTag) -> Any | None:
+        for item in self:
+            if int(item.tag) == key.value:
+                return item.value
+        return None
+
+
+TLV_EFFECT = ExprAdapter(
+    GreedyRange(
+        Struct(
+            "tag" / ConstructEnum(Int8ul, TLVTag),
+            "value"
+            / Prefixed(
+                Int8ul,
+                Switch(
+                    lambda ctx: int(ctx.tag),
+                    {
+                        TLVTag.ON_OFF: Flag,
+                        TLVTag.BRIGHTNESS: Int8ul,
+                        TLVTag.COLOUR_TEMP: Int16ul,
+                        TLVTag.COLOUR_XY: ExprAdapter(
+                            Struct("x" / Int16ul, "y" / Int16ul),
+                            decoder=lambda c, ctx: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
+                            encoder=lambda v, ctx: Container(
+                                x=int(v[0] * 0xFFFF), y=int(v[1] * 0xFFFF)
+                            ),
+                        ),
+                        TLVTag.EFFECT_TYPE: ConstructEnum(Int8ul, TLVEffectType),
+                        TLVTag.EFFECT_SPEED: Int8ul,
+                        Default: Struct("Unknown" / GreedyBytes),
+                    },
+                ),
+            ),
+        )
+    ),
+    # Wrap the parsed list in our custom container for tag lookup + native print format
+    decoder=lambda obj, ctx: TLVListContainer(obj),
+    # Since it's still a list under the hood, building works out of the box
+    encoder=lambda obj, ctx: obj,
+)
 
 
 def _transition_tlv(transition_ms: int) -> bytes:
@@ -431,96 +516,64 @@ class HueBleLight(object):
         if self.supports_effects:
 
             def report(cHandle: int, data: bytearray) -> None:
-                # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
-                effect_state_changed = False
 
-                tlv = TLV.parse(data)
                 _LOGGER.debug(f"Effect bytes: {data.hex()}")
-                _LOGGER.debug(f"TLV: {tlv}")
+                tlv = TLV_EFFECT.parse(data)
+                _LOGGER.debug(f"Parsed effect TLV: {tlv}")
 
-                # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
-                if len(data) == 18:
-                    # we got a colour effect report containing onoff, brightness, colour and effect data
-                    onoff, brightness, x, y, effect_raw, speed = unpack(
-                        UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
+                state_difference: dict[str, tuple[Any, Any]] = {}
+
+                power_on = tlv.get(TLVTag.ON_OFF)
+                if power_on != self._power_on:
+                    state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+                    self._power_on = power_on
+
+                brightness = tlv.get(TLVTag.BRIGHTNESS)
+                if brightness != self._brightness:
+                    state_difference[TLVTag.BRIGHTNESS.name] = (
+                        self._brightness,
+                        brightness,
                     )
-                    effect = EffectType(effect_raw)
-
-                    if (self._effect is not effect) or (self._effect_speed != speed):
-                        effect_state_changed = True
-
-                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                     self._brightness = brightness
-                    self._effect = effect
-                    self._effect_speed = speed
-                    self._power_on = bool(onoff)
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" Effect state of ({self.effect})"""
-                    )
-                elif len(data) == 16:
-                    # we got a temperature effect report containing onoff, brightness, temperature and effect data
-                    onoff, brightness, temperature, effect_raw, speed = unpack(
-                        UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, data
-                    )
-                    effect = EffectType(effect_raw)
-
-                    if (self._effect is not effect) or (self._effect_speed != speed):
-                        effect_state_changed = True
-
-                    self._colour_temp = temperature
-                    self._brightness = brightness
-                    self._effect = effect
-                    self._effect_speed = speed
-                    self._power_on = bool(onoff)
-
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" Effect state of ({self.effect})"""
-                    )
-                elif len(data) == 12:
-                    # bulb is in colour mode, we got onoff, brightness and colourxy data
-                    onoff, brightness, x, y = unpack(
-                        UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, data
-                    )
-                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
-                    self._brightness = brightness
-                    self._power_on = bool(onoff)
-
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" XY colour state of ({self.colour_xy}) and brightness ({self.brightness})"""
-                    )
-                elif len(data) == 10:
-                    # bulb is in temperature mode, we got onoff, brightness and temperature
-                    onoff, brightness, colour_temp = unpack(
-                        UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
+                colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+                if colour_temp != self._colour_temp:
+                    state_difference[TLVTag.COLOUR_TEMP.name] = (
+                        self._colour_temp,
+                        colour_temp,
                     )
                     self._colour_temp = colour_temp
-                    self._brightness = brightness
-                    self._power_on = bool(onoff)
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" colour temp state of ({self.colour_temp})"""
+                colour_xy = tlv.get(TLVTag.COLOUR_XY)
+                if colour_xy != self._colour_xy:
+                    state_difference[TLVTag.COLOUR_XY.name] = (
+                        self._colour_xy,
+                        colour_xy,
                     )
-                elif len(data) == 3:
-                    # device only reports its onoff value (e.g. smart plug)
-                    onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, data)[0]
-                    self._power_on = bool(onoff)
+                    self._colour_xy = colour_xy
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" power state ({self._power_on})"""
+                effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+                if effect_type != self._effect:
+                    state_difference[TLVTag.EFFECT_TYPE.name] = (
+                        self._effect,
+                        effect_type,
                     )
-                else:
-                    # so far unkown
-                    _LOGGER.warning(
-                        f"unrecognized effect response with length {len(data)}: {data}"
-                    )
+                    self._effect = effect_type
 
-                if effect_state_changed:
+                effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+                if effect_speed != self._effect_speed:
+                    state_difference[TLVTag.EFFECT_SPEED.name] = (
+                        self._effect_speed,
+                        effect_speed,
+                    )
+                    self._effect_speed = effect_speed
+
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" Effect state of ({self.effect}) with diff ({state_difference})"""
+                )
+
+                if state_difference:
                     self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to Effects UUID")
