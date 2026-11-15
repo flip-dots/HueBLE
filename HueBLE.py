@@ -1339,6 +1339,88 @@ class HueBleLight(object):
         )
         await self._write_gatt(UUID_EFFECTS, buf)
 
+    async def set_effect(
+        self,
+        power: bool | None = None,
+        brightness: int | None = None,
+        colour: int | tuple[float, float] | None = None,
+        effect: EffectType | None = None,
+        effect_speed: int | None = None,
+        transition: int | None = None,
+    ):
+        """
+        Set the state of the light using the effects API.
+
+        .. note::
+            This API can be used to send non-effect commands to
+            the light (e.g on-off, brightness, etc).
+
+        .. note::
+           This API may not be supported by all lights.
+
+        :param power: Optionally set the power state of the light.
+        :param brightness: Optionally set the brightness of the light (0-255 excl 0 & 255).
+        :param colour: Optionally set the colour of the light.
+        :param effect: Optionally set the effect of the light.
+        :param effect_speed: Optionally set the effect speed (0-255 excl 255).
+        :param transition: Optionally set the transition speed in milliseconds.
+
+        :raises ValueError: If an invalid/out of range argument was provided.
+        """
+        command_args = {}
+
+        if power is not None:
+            command_args[TLVTag.ON_OFF] = power
+
+        if brightness is not None:
+            if 0 >= brightness >= 255:
+                raise ValueError(
+                    f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)"
+                )
+            command_args[TLVTag.BRIGHTNESS] = brightness
+
+        if colour is not None and type(colour) is int:
+            if 0 > colour > 1000:
+                raise ValueError(
+                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)"
+                )
+            command_args[TLVTag.COLOUR_TEMP] = colour
+        elif colour is not None and type(colour) is tuple:
+            x, y = colour
+            if 0.0 >= x >= 1.0:
+                raise ValueError(
+                    f"X was '{x}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                )
+            if 0.0 >= y >= 1.0:
+                raise ValueError(
+                    f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                )
+            command_args[TLVTag.COLOUR_XY] = (x, y)
+        elif colour is not None:
+            raise ValueError(f"Expected int or tuple for colour but got '{colour}'!")
+
+        if effect is not None:
+            command_args[TLVTag.EFFECT_TYPE] = effect
+
+        if effect_speed is not None:
+            if 0 > effect_speed >= 255:
+                raise ValueError(
+                    f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)"
+                )
+            command_args[TLVTag.EFFECT_SPEED] = effect_speed
+
+        if transition is not None:
+            if 0 > transition >= 255:
+                raise ValueError(
+                    f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)"
+                )
+            command_args[TLVTag.TRANSITION] = transition
+
+        _LOGGER.debug(f"Building packet with arguments: {command_args}")
+        packet = TLV_EFFECT.build(command_args)
+        _LOGGER.debug(f"Built packet bytes: {packet}")
+        await self._write_gatt(UUID_EFFECTS, packet)
+
     async def set_colour_effect(
         self,
         x: float,
@@ -1357,20 +1439,14 @@ class HueBleLight(object):
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
-
-        command_args = {
-            TLVTag.ON_OFF: True,
-            TLVTag.BRIGHTNESS: brightness,
-            TLVTag.COLOUR_XY: (x, y),
-            TLVTag.EFFECT_TYPE: effect,
-            TLVTag.EFFECT_SPEED: effect_speed,
-        }
-
-        if transition_ms:
-            command_args[TLVTag.TRANSITION] = transition_ms
-
-        packet = TLV_EFFECT.build(command_args)
-        await self._write_gatt(UUID_EFFECTS, packet)
+        await self.set_effect(
+            power=True,
+            brightness=brightness,
+            colour=(x, y),
+            effect=effect,
+            effect_speed=effect_speed,
+            transition=transition_ms,
+        )
 
     async def set_temperature_effect(
         self,
@@ -1383,25 +1459,20 @@ class HueBleLight(object):
         """
         Sets colour temperature, brightness, effect and effect speed.
 
-        :param colour_temp: colour temperature between 153 and 500
+        :param colour_temp: colour temperature between 0 and 1000
         :param brightness: brightness as an integer between 0 and 255
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
 
-        command_args = {
-            TLVTag.ON_OFF: True,
-            TLVTag.BRIGHTNESS: brightness,
-            TLVTag.COLOUR_TEMP: colour_temp,
-            TLVTag.EFFECT_TYPE: effect,
-            TLVTag.EFFECT_SPEED: effect_speed,
-        }
-
-        if transition_ms:
-            command_args[TLVTag.TRANSITION] = transition_ms
-
-        packet = TLV_EFFECT.build(command_args)
-        await self._write_gatt(UUID_EFFECTS, packet)
+        await self.set_effect(
+            power=True,
+            brightness=brightness,
+            colour=colour_temp,
+            effect=effect,
+            effect_speed=effect_speed,
+            transition=transition_ms,
+        )
 
     @property
     def connected(self) -> bool:
