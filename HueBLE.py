@@ -5,12 +5,11 @@
 """
 
 import asyncio
-import enum
 import logging
 import platform
 import uuid
 from collections.abc import Callable
-from enum import Enum
+from enum import IntEnum
 from struct import pack, unpack
 from typing import Any
 
@@ -137,71 +136,21 @@ DEFAULT_RECONNECT_DELAY = 3
 #: Maximum amount of automatic reconnection attempts the program will make.
 DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 
-#: data stream unpack format string for decoding colour with effect (effect API)
-UNPACK_EFFECT_API_COLOUR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
-
-#: data stream unpack format string for decoding plain colour without effect (effect API)
-UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT = "<xxBxxBxxHH"
-
-#: data stream unpack format string for decoding temperature with effect (effect API)
-UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
-
-#: data stream unpack format string for decoding plain temperature without effect (effect API)
-UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
-
-#: data stream unpack format string for decoding the onoff-only report (effect API),
-#: sent by devices that only support on/off, e.g. the Hue smart plug
-UNPACK_EFFECT_API_ONOFF_ONLY = "<xxB"
-
 
 _LOGGER = logging.getLogger(__name__)
 
 
-#: Enum describing the different avaibale effects with their corresponding id
-class EffectType(Enum):
-    NONE = 0x00
-    CANDLE = 0x01
-    FIREPLACE = 0x02
-    PRISM = 0x03
-    SUNRISE = 0x09
-    SPARKLE = 0x0A
-    OPAL = 0x0B
-    GLISTEN = 0x0C
-    SUNSET = 0x0D
-    UNDERWATER = 0x0E
-    COSMOS = 0x0F
-    SUNBEAM = 0x10
-    ENCHANT = 0x11
-
-    @classmethod
-    def _missing_(cls, value):
-        _LOGGER.warning(
-            f"Unknown effect type: '{value}' reported by light, using default of none!"
-        )
-        return cls.NONE
-
-
-#: EFFECT_COMMANDS (hex string) for the Effect Characteristic endpoint containing one byte id and one byte data length
-class EffectCommands(Enum):
-    ONOFF = "0101"
-    BRIGHTNESS = "0201"
-    TEMPERATURE = "0302"
-    COLOURXY = "0404"
-    TRANSITION_TIME = "0502"
-    EFFECT = "0601"
-    EFFECT_SPEED = "0801"
-
-
-class TLVTag(enum.IntEnum):
+class TLVTag(IntEnum):
     ON_OFF = 1
     BRIGHTNESS = 2
     COLOUR_TEMP = 3
     COLOUR_XY = 4
+    TRANSITION = 5
     EFFECT_TYPE = 6
     EFFECT_SPEED = 8
 
 
-class TLVEffectType(enum.IntEnum):
+class EffectType(IntEnum):
     NONE = 0
     CANDLE = 1
     FIREPLACE = 2
@@ -215,6 +164,13 @@ class TLVEffectType(enum.IntEnum):
     COSMOS = 15
     SUNBEAM = 16
     ENCHANT = 17
+
+    @classmethod
+    def _missing_(cls, value):
+        _LOGGER.warning(
+            f"Unknown effect type: '{value}' reported by light, using default of none!"
+        )
+        return cls.NONE
 
 
 class TLVListContainer(ListContainer):
@@ -246,7 +202,12 @@ TLV_EFFECT = ExprAdapter(
                                 x=int(v[0] * 0xFFFF), y=int(v[1] * 0xFFFF)
                             ),
                         ),
-                        TLVTag.EFFECT_TYPE: ConstructEnum(Int8ul, TLVEffectType),
+                        TLVTag.TRANSITION: Int16ul,
+                        TLVTag.EFFECT_TYPE: ExprAdapter(
+                            Int8ul,
+                            decoder=lambda val, ctx: EffectType(val),
+                            encoder=lambda obj, ctx: int(obj),
+                        ),
                         TLVTag.EFFECT_SPEED: Int8ul,
                         Default: Struct("Unknown" / GreedyBytes),
                     },
@@ -254,10 +215,14 @@ TLV_EFFECT = ExprAdapter(
             ),
         )
     ),
-    # Wrap the parsed list in our custom container for tag lookup + native print format
+    # Wrap the parsed list in custom container for tag lookup and debug logging
     decoder=lambda obj, ctx: TLVListContainer(obj),
-    # Since it's still a list under the hood, building works out of the box
-    encoder=lambda obj, ctx: obj,
+    # Use encoder to allow for building flat
+    encoder=lambda obj, ctx: (
+        [{"tag": k, "value": v} for k, v in sorted(obj.items())]
+        if isinstance(obj, dict)
+        else obj
+    ),
 )
 
 
@@ -1252,69 +1217,66 @@ class HueBleLight(object):
         self, write_state: bool = DEFAULT_POLL_WRITES_STATE
     ) -> tuple[EffectType, int]:
         """Gets the effect type and effect speed as enum and int between 0 and 255."""
-        buf = await self._read_gatt(UUID_EFFECTS)
+        data = await self._read_gatt(UUID_EFFECTS)
 
-        effect = EffectType.NONE
-        effect_speed = 0
+        _LOGGER.debug(f"Effect bytes: {data.hex()}")
+        tlv = TLV_EFFECT.parse(data)
+        _LOGGER.debug(f"Parsed effect TLV: {tlv}")
 
-        # if an effect is active, more data is returned
-        if len(buf) == 18:
-            onoff, brightness, x, y, effect_raw, speed = unpack(
-                UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, buf
-            )
-            x_after = x / 0xFFFF
-            y_after = y / 0xFFFF
-            effect = EffectType(effect_raw)
-            effect_speed = speed
+        state_difference: dict[str, tuple[Any, Any]] = {}
+
+        power_on = tlv.get(TLVTag.ON_OFF)
+        if power_on != self._power_on:
+            state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
             if write_state:
-                self._colour_xy = (x_after, y_after)
-                self._brightness = brightness
-                self._effect = effect
-                self._effect_speed = speed
-                self._power_on = bool(onoff)
-        elif len(buf) == 16:
-            onoff, brightness, temperature, effect_raw, speed = unpack(
-                UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, buf
+                self._power_on = power_on
+
+        brightness = tlv.get(TLVTag.BRIGHTNESS)
+        if brightness != self._brightness:
+            state_difference[TLVTag.BRIGHTNESS.name] = (
+                self._brightness,
+                brightness,
             )
-            effect = EffectType(effect_raw)
-            effect_speed = speed
             if write_state:
-                self._colour_temp = temperature
                 self._brightness = brightness
-                self._effect = effect
-                self._effect_speed = speed
-                self._power_on = bool(onoff)
-        elif len(buf) == 12:
-            # it is colour and bightness
-            onoff, brightness, x, y = unpack(
-                UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, buf
-            )
-            x_after = x / 0xFFFF
-            y_after = y / 0xFFFF
-            if write_state:
-                self._colour_xy = (x_after, y_after)
-                self._brightness = brightness
-                self._power_on = bool(onoff)
-        elif len(buf) == 10:
-            # it is temperature mode
-            onoff, brightness, colour_temp = unpack(
-                UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf
+
+        colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+        if colour_temp != self._colour_temp:
+            state_difference[TLVTag.COLOUR_TEMP.name] = (
+                self._colour_temp,
+                colour_temp,
             )
             if write_state:
                 self._colour_temp = colour_temp
-                self._power_on = bool(onoff)
-        elif len(buf) == 3:
-            # device only reports its onoff value (e.g. smart plug)
-            onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, buf)[0]
-            if write_state:
-                self._power_on = bool(onoff)
-        else:
-            # so far unkown
-            _LOGGER.warning(
-                f"unrecognized effect response with length {len(buf)}: {buf}"
-            )
 
-        return effect, effect_speed
+        colour_xy = tlv.get(TLVTag.COLOUR_XY)
+        if colour_xy != self._colour_xy:
+            state_difference[TLVTag.COLOUR_XY.name] = (
+                self._colour_xy,
+                colour_xy,
+            )
+            if write_state:
+                self._colour_xy = colour_xy
+
+        effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+        if effect_type != self._effect:
+            state_difference[TLVTag.EFFECT_TYPE.name] = (
+                self._effect,
+                effect_type,
+            )
+            if write_state:
+                self._effect = effect_type
+
+        effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+        if effect_speed != self._effect_speed:
+            state_difference[TLVTag.EFFECT_SPEED.name] = (
+                self._effect_speed,
+                effect_speed,
+            )
+            if write_state:
+                self._effect_speed = effect_speed
+
+        return effect_type, effect_speed
 
     async def set_light_name(self, name: str):
         """Sets the name of the light. Not tested, use at own risk."""
@@ -1395,36 +1357,20 @@ class HueBleLight(object):
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
-        if effect is not EffectType.NONE:
-            buf = pack(
-                "<2sB2sB2sHH2sB2sB",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLOURXY.value),
-                int(x * 0xFFFF),
-                int(y * 0xFFFF),
-                bytes.fromhex(EffectCommands.EFFECT.value),
-                max(min(effect.value, 254), 1),
-                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 255), 0),
-            )
-        else:
-            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
-            buf = pack(
-                "<2sB2sB2sHH",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLOURXY.value),
-                int(x * 0xFFFF),
-                int(y * 0xFFFF),
-            )
-        if transition_ms is not None:
-            buf += _transition_tlv(transition_ms)
-        await self._write_gatt(UUID_EFFECTS, buf)
+
+        command_args = {
+            TLVTag.ON_OFF: True,
+            TLVTag.BRIGHTNESS: brightness,
+            TLVTag.COLOUR_XY: (x, y),
+            TLVTag.EFFECT_TYPE: effect,
+            TLVTag.EFFECT_SPEED: effect_speed,
+        }
+
+        if transition_ms:
+            command_args[TLVTag.TRANSITION] = transition_ms
+
+        packet = TLV_EFFECT.build(command_args)
+        await self._write_gatt(UUID_EFFECTS, packet)
 
     async def set_temperature_effect(
         self,
@@ -1442,36 +1388,20 @@ class HueBleLight(object):
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
-        temperature = max(min(int(colour_temp), 500), 153)
 
-        if effect is not EffectType.NONE:
-            buf = pack(
-                "<2sB2sB2sH2sB2sB",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.TEMPERATURE.value),
-                temperature,
-                bytes.fromhex(EffectCommands.EFFECT.value),
-                max(min(effect.value, 254), 1),
-                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 255), 0),
-            )
-        else:
-            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
-            buf = pack(
-                "<2sB2sB2sH",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.TEMPERATURE.value),
-                temperature,
-            )
-        if transition_ms is not None:
-            buf += _transition_tlv(transition_ms)
-        await self._write_gatt(UUID_EFFECTS, buf)
+        command_args = {
+            TLVTag.ON_OFF: True,
+            TLVTag.BRIGHTNESS: brightness,
+            TLVTag.COLOUR_TEMP: colour_temp,
+            TLVTag.EFFECT_TYPE: effect,
+            TLVTag.EFFECT_SPEED: effect_speed,
+        }
+
+        if transition_ms:
+            command_args[TLVTag.TRANSITION] = transition_ms
+
+        packet = TLV_EFFECT.build(command_args)
+        await self._write_gatt(UUID_EFFECTS, packet)
 
     @property
     def connected(self) -> bool:

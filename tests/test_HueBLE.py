@@ -5,17 +5,17 @@
 """
 
 import asyncio
-from contextlib import nullcontext
-from struct import pack
-import time
 import traceback
+from struct import pack
 from typing import Any, Union
-from bleak import BLEDevice
 from unittest import mock
 
-from bleak.exc import BleakError
 import pytest
+from bleak import BLEDevice
+from bleak.exc import BleakError
+
 import HueBLE
+from HueBLE import TLV_EFFECT, EffectType, TLVTag
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, sleep_side_effect
 
@@ -868,3 +868,87 @@ async def test_connect_errors(
             )
             for error_message in error_messages:
                 assert error_message in traceback_message
+
+
+@pytest.mark.parametrize(
+    "args, expected",
+    [
+        pytest.param(
+            {
+                TLVTag.ON_OFF: True,
+            },
+            "010101",
+            id="power_on",
+        ),
+        pytest.param(
+            {
+                TLVTag.ON_OFF: False,
+            },
+            "010100",
+            id="power_off",
+        ),
+        pytest.param(
+            {
+                TLVTag.ON_OFF: False,
+                TLVTag.BRIGHTNESS: 100,
+            },
+            "010100020164",
+            id="power_off_and_brightness",
+        ),
+        pytest.param(
+            {
+                TLVTag.BRIGHTNESS: 100,
+                TLVTag.ON_OFF: False,
+            },
+            "010100020164",
+            id="power_off_and_brightness_reversed",
+        ),
+        pytest.param(
+            {TLVTag.COLOUR_TEMP: 100},
+            "03026400",
+            id="colour_temp",
+        ),
+        pytest.param(
+            {TLVTag.COLOUR_XY: (0.5, 0.5)},
+            "0404ff7fff7f",
+            id="colour_xy",
+        ),
+        pytest.param(
+            {TLVTag.ON_OFF: False, TLVTag.TRANSITION: 100},
+            "01010005026400",
+            id="power_off_with_transition",
+        ),
+        pytest.param(
+            {
+                TLVTag.COLOUR_TEMP: 500,
+                TLVTag.EFFECT_TYPE: EffectType.CANDLE,
+                TLVTag.EFFECT_SPEED: 100,
+            },
+            "0302f401060101080164",
+            id="colour_temp_with_effect",
+        ),
+        pytest.param(
+            {
+                TLVTag.COLOUR_XY: (0.3, 0.3),
+                TLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
+                TLVTag.EFFECT_SPEED: 150,
+            },
+            "0404cc4ccc4c060102080196",
+            id="colour_xy_with_effect",
+        ),
+        pytest.param(
+            {
+                TLVTag.COLOUR_XY: (0.3, 0.3),
+                TLVTag.TRANSITION: 1000,
+                TLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
+                TLVTag.EFFECT_SPEED: 150,
+            },
+            "0404cc4ccc4c0502e803060102080196",
+            id="colour_xy_with_transition_and_effect",
+        ),
+    ],
+)
+def test_tlv_build(args: dict, expected: str):
+    """Test that a TLV packet built with the arguments matches what we expect."""
+    packet = TLV_EFFECT.build(args)
+    assert packet.hex() == expected, "Expected built packet to match bytes"
