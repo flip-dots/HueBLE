@@ -7,7 +7,7 @@
 import asyncio
 import traceback
 from struct import pack
-from typing import Any, Union
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -15,7 +15,7 @@ from bleak import BLEDevice
 from bleak.exc import BleakError
 
 import HueBLE
-from HueBLE import TLV_EFFECT, EffectType, TLVTag
+from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, sleep_side_effect
 
@@ -25,45 +25,49 @@ from tests.helpers import MockDevice, sleep_side_effect
     "command_uuid, command_bytes, responses, function, args, expected_props",
     [
         pytest.param(
-            HueBLE.UUID_POWER,
+            HueBLE.const.UUID_POWER,
             bytes.fromhex("01"),
-            {HueBLE.UUID_POWER: bytes.fromhex("01")},
+            {HueBLE.const.UUID_POWER: bytes.fromhex("01")},
             "set_power",
             [True],
             {"power_state": True},
             id="power_on",
         ),
         pytest.param(
-            HueBLE.UUID_POWER,
+            HueBLE.const.UUID_POWER,
             bytes.fromhex("00"),
-            {HueBLE.UUID_POWER: bytes.fromhex("00")},
+            {HueBLE.const.UUID_POWER: bytes.fromhex("00")},
             "set_power",
             [False],
             {"power_state": False},
             id="power_off",
         ),
         pytest.param(
-            HueBLE.UUID_BRIGHTNESS,
+            HueBLE.const.UUID_BRIGHTNESS,
             bytes.fromhex("05"),
-            {HueBLE.UUID_BRIGHTNESS: bytes.fromhex("05")},
+            {HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("05")},
             "set_brightness",
             [5],
             {"brightness": 5},
             id="brightness",
         ),
         pytest.param(
-            HueBLE.UUID_TEMPERATURE,
+            HueBLE.const.UUID_TEMPERATURE,
             bytes.fromhex("2C01"),
-            {HueBLE.UUID_TEMPERATURE: bytes.fromhex("2C01")},
+            {HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("2C01")},
             "set_colour_temp",
             [300],
             {"colour_temp": 300},
             id="colour_temp",
         ),
         pytest.param(
-            HueBLE.UUID_XY_COLOUR,
+            HueBLE.const.UUID_XY_COLOUR,
             pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)),
-            {HueBLE.UUID_XY_COLOUR: pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF))},
+            {
+                HueBLE.const.UUID_XY_COLOUR: pack(
+                    "<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)
+                )
+            },
             "set_colour_xy",
             [0.7, 0.5],
             {
@@ -73,11 +77,11 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_xy",
         ),
         pytest.param(
-            HueBLE.UUID_TEMPERATURE,
+            HueBLE.const.UUID_TEMPERATURE,
             bytes.fromhex("5E01"),
             {
-                HueBLE.UUID_TEMPERATURE: bytes.fromhex("5E01"),
-                HueBLE.UUID_XY_COLOUR: pack(
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("5E01"),
+                HueBLE.const.UUID_XY_COLOUR: pack(
                     "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
                 ),
             },
@@ -91,10 +95,10 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_temp_mode",
         ),
         pytest.param(
-            HueBLE.UUID_EFFECTS,
+            HueBLE.const.UUID_EFFECTS,
             bytes.fromhex("01010102015004049bc54f3606010108015e"),
             {
-                HueBLE.UUID_EFFECTS: bytes.fromhex(
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
                     "01010102015004049bc54f3606010108015e"
                 ),
             },
@@ -108,10 +112,12 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_effect",
         ),
         pytest.param(
-            HueBLE.UUID_EFFECTS,
+            HueBLE.const.UUID_EFFECTS,
             bytes.fromhex("01010102015003022c0106010108015e"),
             {
-                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015003022c0106010108015e"),
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
+                    "01010102015003022c0106010108015e"
+                ),
             },
             "set_temperature_effect",
             [300, 80, HueBLE.EffectType.CANDLE, 94],
@@ -194,11 +200,11 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "Elliott".encode(),
-                HueBLE.UUID_MODEL: "ABCDEF".encode(),
-                HueBLE.UUID_FW_VERSION: "1.9.2.3".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("0a0b0c0d0e0f"),
-                HueBLE.UUID_NAME: "Red Wheelbarrow".encode(),
+                HueBLE.const.UUID_MANUFACTURER: b"Elliott",
+                HueBLE.const.UUID_MODEL: b"ABCDEF",
+                HueBLE.const.UUID_FW_VERSION: b"1.9.2.3",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("0a0b0c0d0e0f"),
+                HueBLE.const.UUID_NAME: b"Red Wheelbarrow",
             },
             {
                 "manufacturer": "Elliott",
@@ -218,12 +224,12 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "sigNifY".encode(),
-                HueBLE.UUID_MODEL: "Cloning Machine 2000".encode(),
-                HueBLE.UUID_FW_VERSION: "2".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("ffff"),
-                HueBLE.UUID_NAME: "Mauler Twins Base".encode(),
-                HueBLE.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.const.UUID_MANUFACTURER: b"sigNifY",
+                HueBLE.const.UUID_MODEL: b"Cloning Machine 2000",
+                HueBLE.const.UUID_FW_VERSION: b"2",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("ffff"),
+                HueBLE.const.UUID_NAME: b"Mauler Twins Base",
+                HueBLE.const.UUID_POWER: bytes.fromhex("01"),
             },
             {
                 "manufacturer": "sigNifY",
@@ -243,13 +249,13 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "Govee".encode(),
-                HueBLE.UUID_MODEL: "Hue Clone".encode(),
-                HueBLE.UUID_FW_VERSION: "0.0.0".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("010101010101"),
-                HueBLE.UUID_NAME: "Totally a Hue light".encode(),
-                HueBLE.UUID_POWER: bytes.fromhex("01"),
-                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("FA"),
+                HueBLE.const.UUID_MANUFACTURER: b"Govee",
+                HueBLE.const.UUID_MODEL: b"Hue Clone",
+                HueBLE.const.UUID_FW_VERSION: b"0.0.0",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("010101010101"),
+                HueBLE.const.UUID_NAME: b"Totally a Hue light",
+                HueBLE.const.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("FA"),
             },
             {
                 "manufacturer": "Govee",
@@ -269,14 +275,14 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "IKEA".encode(),
-                HueBLE.UUID_MODEL: "Slightly Better Hue Clone".encode(),
-                HueBLE.UUID_FW_VERSION: "1.2.3-alpha".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("09080706050403020100"),
-                HueBLE.UUID_NAME: "Hue light?".encode(),
-                HueBLE.UUID_POWER: bytes.fromhex("01"),
-                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("96"),
-                HueBLE.UUID_TEMPERATURE: bytes.fromhex("7201"),
+                HueBLE.const.UUID_MANUFACTURER: b"IKEA",
+                HueBLE.const.UUID_MODEL: b"Slightly Better Hue Clone",
+                HueBLE.const.UUID_FW_VERSION: b"1.2.3-alpha",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("09080706050403020100"),
+                HueBLE.const.UUID_NAME: b"Hue light?",
+                HueBLE.const.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("96"),
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("7201"),
             },
             {
                 "manufacturer": "IKEA",
@@ -287,8 +293,8 @@ async def test_commands(
                 "power_state": True,
                 "brightness": 150,
                 "colour_temp": 370,
-                "minimum_mireds": HueBLE.MIN_MIREDS,
-                "maximum_mireds": HueBLE.MAX_MIREDS,
+                "minimum_mireds": HueBLE.const.MIN_MIREDS,
+                "maximum_mireds": HueBLE.const.MAX_MIREDS,
                 "colour_temp_mode": True,
                 "colour_xy": None,
             },
@@ -296,15 +302,15 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "pHillIpS".encode(),
-                HueBLE.UUID_MODEL: "BIG LIGHT 3000".encode(),
-                HueBLE.UUID_FW_VERSION: "0.0.0.0.0.1a".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
-                HueBLE.UUID_NAME: "Volcano lair kitchen".encode(),
-                HueBLE.UUID_POWER: bytes.fromhex("00"),
-                HueBLE.UUID_BRIGHTNESS: bytes.fromhex("36"),
-                HueBLE.UUID_TEMPERATURE: bytes.fromhex("9900"),
-                HueBLE.UUID_XY_COLOUR: pack(
+                HueBLE.const.UUID_MANUFACTURER: b"pHillIpS",
+                HueBLE.const.UUID_MODEL: b"BIG LIGHT 3000",
+                HueBLE.const.UUID_FW_VERSION: b"0.0.0.0.0.1a",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.const.UUID_NAME: b"Volcano lair kitchen",
+                HueBLE.const.UUID_POWER: bytes.fromhex("00"),
+                HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("36"),
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("9900"),
+                HueBLE.const.UUID_XY_COLOUR: pack(
                     "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
                 ),
             },
@@ -324,12 +330,12 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "atmospheric lights".encode(),
-                HueBLE.UUID_MODEL: "Candle Lights".encode(),
-                HueBLE.UUID_FW_VERSION: "c.a.f.f.e.e".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
-                HueBLE.UUID_NAME: "Tea light".encode(),
-                HueBLE.UUID_EFFECTS: bytes.fromhex(
+                HueBLE.const.UUID_MANUFACTURER: b"atmospheric lights",
+                HueBLE.const.UUID_MODEL: b"Candle Lights",
+                HueBLE.const.UUID_FW_VERSION: b"c.a.f.f.e.e",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.const.UUID_NAME: b"Tea light",
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
                     "01010102015004046666ff7f06010108015e"
                 ),
             },
@@ -349,12 +355,14 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "atmospheric lights".encode(),
-                HueBLE.UUID_MODEL: "Candle Lights".encode(),
-                HueBLE.UUID_FW_VERSION: "c.a.f.f.e.e".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
-                HueBLE.UUID_NAME: "Tea light".encode(),
-                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102015003022c0106010108015e"),
+                HueBLE.const.UUID_MANUFACTURER: b"atmospheric lights",
+                HueBLE.const.UUID_MODEL: b"Candle Lights",
+                HueBLE.const.UUID_FW_VERSION: b"c.a.f.f.e.e",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.const.UUID_NAME: b"Tea light",
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
+                    "01010102015003022c0106010108015e"
+                ),
             },
             {
                 "manufacturer": "atmospheric lights",
@@ -372,12 +380,14 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "Philippe Hue".encode(),
-                HueBLE.UUID_MODEL: "Fancy new light".encode(),
-                HueBLE.UUID_FW_VERSION: "1.7.10".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
-                HueBLE.UUID_NAME: "L A M P".encode(),
-                HueBLE.UUID_EFFECTS: bytes.fromhex("01010102014503022c01060115080138"),
+                HueBLE.const.UUID_MANUFACTURER: b"Philippe Hue",
+                HueBLE.const.UUID_MODEL: b"Fancy new light",
+                HueBLE.const.UUID_FW_VERSION: b"1.7.10",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.const.UUID_NAME: b"L A M P",
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
+                    "01010102014503022c01060115080138"
+                ),
             },
             {
                 "manufacturer": "Philippe Hue",
@@ -395,13 +405,13 @@ async def test_commands(
         ),
         pytest.param(
             {
-                HueBLE.UUID_MANUFACTURER: "Philippe Hue".encode(),
-                HueBLE.UUID_MODEL: "Fancy new light".encode(),
-                HueBLE.UUID_FW_VERSION: "1.7.10".encode(),
-                HueBLE.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
-                HueBLE.UUID_NAME: "L A M P".encode(),
+                HueBLE.const.UUID_MANUFACTURER: b"Philippe Hue",
+                HueBLE.const.UUID_MODEL: b"Fancy new light",
+                HueBLE.const.UUID_FW_VERSION: b"1.7.10",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
+                HueBLE.const.UUID_NAME: b"L A M P",
                 # on/off-only device (e.g. smart plug): only the onoff TLV is reported
-                HueBLE.UUID_EFFECTS: bytes.fromhex("010100"),
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex("010100"),
             },
             {
                 "manufacturer": "Philippe Hue",
@@ -429,7 +439,7 @@ async def test_poll_state(
 
     async with MockDevice() as mock_bluetooth:
 
-        def mock_get_characteristic(uuid: str) -> bytes:
+        def mock_get_characteristic(uuid: str) -> bytes | None:
             """
             Mocked client.services.get_characteristic for BleakClient.
 
@@ -483,7 +493,7 @@ async def test_poll_state(
             prop = getattr(device, key)
             assert (
                 prop == value
-            ), f"Light state '{key}' is not expected value after command! Expected '{value}' but got '{prop}'!"
+            ), f"Light state '{key}' is not expected value after command! Expected '{value!r}' but got '{prop}'!"
 
 
 @pytest.mark.asyncio
@@ -648,7 +658,7 @@ async def test_disconnect():
     ],
 )
 async def test_authenticated(
-    platform: str, properties: Union[bool, None], value: Union[bool, None]
+    platform: str, properties: bool | None, value: bool | None
 ):
     """
     Test the authenticated property by mocking different platforms and
@@ -680,7 +690,7 @@ async def test_authenticated(
             None,
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Failed to make an initial connection to the light",
@@ -696,7 +706,7 @@ async def test_authenticated(
             None,
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Failed to make an initial connection to the light",
@@ -712,7 +722,7 @@ async def test_authenticated(
             None,
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Timed out attempting to connect to",
@@ -727,7 +737,7 @@ async def test_authenticated(
             None,
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Timed out attempting to pair",
@@ -742,7 +752,7 @@ async def test_authenticated(
             None,
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Error from Bluetooth backend when attempting to pair",
@@ -758,7 +768,7 @@ async def test_authenticated(
             [True, True, Exception("NOPE BAD SERVICE")],
             None,
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Failed to determine what services",
@@ -774,7 +784,7 @@ async def test_authenticated(
             None,
             [True, True, Exception("NOPE BAD SUBSCRIPTION")],
             None,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Exception connecting to light",
                 "Failed to subscribe to services offered",
@@ -790,7 +800,7 @@ async def test_authenticated(
             None,
             None,
             sleep_side_effect,
-            HueBLE.ConnectionError,
+            ConnectionError,
             [
                 "Timed out waiting for connection lock for",
             ],
@@ -807,7 +817,7 @@ async def test_connect_errors(
     services_side_effect: Any,
     subscribe_side_effect: Any,
     connection_lock_side_effect: Any,
-    error: Exception,
+    error: type[Exception],
     error_messages: list[str],
 ):
     """
@@ -836,7 +846,7 @@ async def test_connect_errors(
     )
 
     sleep = asyncio.sleep
-    async with mock_device as mock_bluetooth:
+    async with mock_device:
 
         device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
 
@@ -846,7 +856,7 @@ async def test_connect_errors(
         with (
             mock.patch("platform.system", return_value="linux"),
             mock.patch(
-                "HueBLE.HueBleLight.authenticated",
+                "HueBLE.light.HueBleLight.authenticated",
                 new_callable=mock.PropertyMock,
                 return_value=authenticated_side_effect,
             ),
@@ -950,7 +960,7 @@ async def test_connect_errors(
         ),
     ],
 )
-def test_tlv_build(args: dict, expected: str):
+def test_tlv_build(args: list[dict[str, Any] | None], expected: str):
     """Test that a TLV packet built with the arguments matches what we expect."""
     packet = TLV_EFFECT.build(args)
     assert packet.hex() == expected, "Expected built packet to match bytes"
