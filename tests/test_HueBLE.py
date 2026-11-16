@@ -169,7 +169,7 @@ async def test_commands(
             prop = getattr(device, key)
             assert (
                 prop == value
-            ), f"Light state '{key}' is not expected value after command!"
+            ), f"Light state '{key}' is not expected value after command! Expected '{value}' but got '{prop}'!"
 
 
 @pytest.mark.asyncio
@@ -481,7 +481,9 @@ async def test_poll_state(
         for key, value in expected_props.items():
 
             prop = getattr(device, key)
-            assert prop == value, f"Light state '{key}' is not the expected value!"
+            assert (
+                prop == value
+            ), f"Light state '{key}' is not expected value after command! Expected '{value}' but got '{prop}'!"
 
 
 @pytest.mark.asyncio
