@@ -226,21 +226,6 @@ TLV_EFFECT = ExprAdapter(
 )
 
 
-def _transition_tlv(transition_ms: int) -> bytes:
-    if not isinstance(transition_ms, int):
-        raise TypeError("transition_ms must be an integer")
-    if transition_ms < 0 or transition_ms % 100 != 0:
-        raise ValueError("transition_ms must be a non-negative multiple of 100")
-
-    units = transition_ms // 100
-    if units > 0xFFFF:
-        raise ValueError("transition_ms is too large")
-
-    return bytes.fromhex(EffectCommands.TRANSITION_TIME.value) + units.to_bytes(
-        2, "little"
-    )
-
-
 class HueBleError(Exception):
     """
     Base exception of HueBLE.
@@ -1288,12 +1273,7 @@ class HueBleLight(object):
             await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.ONOFF.value)
-            + bytes([1 if on else 0])
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(power=on, transition=transition_ms)
 
     async def set_brightness(self, brightness: int, transition_ms: int | None = None):
         """Sets the brightness from an integer between 0 and 255"""
@@ -1302,12 +1282,7 @@ class HueBleLight(object):
             await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.BRIGHTNESS.value)
-            + bytes([brightness])
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(brightness=brightness, transition=transition_ms)
 
     async def set_colour_temp(self, colour_temp: int, transition_ms: int | None = None):
         """Sets the temperature from an int between 153 and 500.
@@ -1318,12 +1293,7 @@ class HueBleLight(object):
             await self._write_gatt(UUID_TEMPERATURE, data)
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.TEMPERATURE.value)
-            + data
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(colour=colour_temp, transition=transition_ms)
 
     async def set_colour_xy(self, x: float, y: float, transition_ms: int | None = None):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
@@ -1332,12 +1302,7 @@ class HueBleLight(object):
             await self._write_gatt(UUID_XY_COLOUR, data)
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.COLOURXY.value)
-            + data
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(colour=(x, y), transition=transition_ms)
 
     async def set_effect(
         self,
