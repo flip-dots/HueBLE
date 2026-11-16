@@ -9,277 +9,53 @@ import logging
 import platform
 import uuid
 from collections.abc import Callable
-from enum import IntEnum
 from struct import pack, unpack
 from typing import Any
 
-from bleak import BleakClient, BleakError, BleakScanner
+from bleak import BleakClient, BleakError
 from bleak.backends import BleakBackend
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
-from construct import (
-    Container,
-    Default,
-    ExprAdapter,
-    Flag,
-    GreedyBytes,
-    GreedyRange,
-    Int8ul,
-    Int16ul,
-    ListContainer,
-    Prefixed,
-    Struct,
-    Switch,
+
+from HueBLE.const import (
+    DEFAULT_CONNECTION_ATTEMPTS_MAX,
+    DEFAULT_CONNECTION_TIMEOUT,
+    DEFAULT_CONNECTION_WAIT_TIMEOUT,
+    DEFAULT_MAX_RECONNECT_ATTEMPTS,
+    DEFAULT_ON_CONNECT_RUN_CALLBACKS,
+    DEFAULT_PAIR_TIMEOUT,
+    DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED,
+    DEFAULT_POLL_STATE_TIMEOUT,
+    DEFAULT_POLL_WRITES_STATE,
+    DEFAULT_READ_GATT_MAX_ATTEMPTS,
+    DEFAULT_READ_GATT_TIMEOUT,
+    DEFAULT_RECONNECT_DELAY,
+    DEFAULT_WRITE_GATT_MAX_ATTEMPTS,
+    DEFAULT_WRITE_GATT_TIMEOUT,
+    MAX_MIREDS,
+    MIN_MIREDS,
+    UUID_BRIGHTNESS,
+    UUID_EFFECTS,
+    UUID_FW_VERSION,
+    UUID_MANUFACTURER,
+    UUID_MODEL,
+    UUID_NAME,
+    UUID_POWER,
+    UUID_TEMPERATURE,
+    UUID_XY_COLOUR,
+    UUID_ZIGBEE_ADDRESS,
 )
-from construct import (
-    Enum as ConstructEnum,
+from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
+from HueBLE.exceptions import (
+    CallbackError,
+    InitialConnectionError,
+    PairingError,
+    ReadWriteError,
+    ServicesError,
 )
-
-#: String containing manufacturer. Handle 15.
-UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
-
-#: String containing model number. Handle 17
-UUID_MODEL = "00002a24-0000-1000-8000-00805f9b34fb"
-
-#: String containing firmware version. Handle 19.
-UUID_FW_VERSION = "00002a28-0000-1000-8000-00805f9b34fb"
-
-#: String containing Zigbee address. Handle 22.
-UUID_ZIGBEE_ADDRESS = "97fe6561-0001-4f62-86e9-b71ee2da3d22"
-
-#: String containing light name. Handle 24
-UUID_NAME = "97fe6561-0003-4f62-86e9-b71ee2da3d22"
-
-#: Power state of light. Is subscribable. x00 and x01. Handle 49.
-UUID_POWER = "932c32bd-0002-47a2-835a-a8d455b859dd"
-
-#: Brightness of light. Int 0-255. Handle 52.
-UUID_BRIGHTNESS = "932c32bd-0003-47a2-835a-a8d455b859dd"
-
-#: Temperature of light. Int 153-500. 0xFFFF when colour enabled. Handle 55.
-UUID_TEMPERATURE = "932c32bd-0004-47a2-835a-a8d455b859dd"
-
-#: XY colour of light. Two 16-bit ints. 0xFFFFFFFF when CW/WW. Handle 58.
-UUID_XY_COLOUR = "932c32bd-0005-47a2-835a-a8d455b859dd"
-
-#: new colour change and effect enpoint
-UUID_EFFECTS = "932c32bd-0007-47a2-835a-a8d455b859dd"
-
-#: This is a UUID that as far as I know only hue lights use and it shows up
-#: under BLE Device details and as such does not require connecting to check
-#: for. The UUID also has the following service data. I am not sure what it
-#: means but it is the same for both of my colour lights with model no LCA006.
-#: \x02\x10\x0e\xbe\x02
-UUID_HUE_IDENTIFIER = "0000fe0f-0000-1000-8000-00805f9b34fb"
-
-#: The assumed minimum colour temperature of the light in mireds.
-#: Constant as it us unknown if/where the light exposes this data.
-MIN_MIREDS = 153
-
-#: The assumed maximum colour temperature of the light in mireds.
-#: Constant as it us unknown if/where the light exposes this data.
-MAX_MIREDS = 500
-
-#: Default string of light metadata light address, model, and firmware.
-DEFAULT_METADATA_STRING = "Unknown"
-
-#: Default max connection attempts in the connect function.
-DEFAULT_CONNECTION_ATTEMPTS_MAX = 3
-
-#: Default max time for all connection attempts in connect function.
-DEFAULT_CONNECTION_TIMEOUT = 30
-
-#: Default max time before a call to connect times out waiting for
-#: another call to connect to finish its attempt.
-DEFAULT_CONNECTION_WAIT_TIMEOUT = 120
-
-#: Default of if making a successful connection to the light triggers
-#: callbacks to be run.
-DEFAULT_ON_CONNECT_RUN_CALLBACKS = True
-
-#: Default time to wait for a pairing request to complete.
-DEFAULT_PAIR_TIMEOUT = 15
-
-#: Default max time before a call to poll state times out.
-DEFAULT_POLL_STATE_TIMEOUT = 45
-
-#: Default of if callbacks should be executed on a call to poll_state
-#: where the state changed.
-DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED = True
-
-#: Default max time before a single read attempt to the light times out and it
-#: will try again. This must be large enough to allow for a connection attempt
-#: if the light is not already connected.
-DEFAULT_READ_GATT_TIMEOUT = 20
-
-#: Default max light read attempts before raising an exception.
-DEFAULT_READ_GATT_MAX_ATTEMPTS = 3
-
-#: Default max time before a single write attempt to the light times out and it
-#: will try again. This must be large enough to allow for a connection attempt
-#: if the light is not already connected.
-DEFAULT_WRITE_GATT_TIMEOUT = 20
-
-#: Default max light write attempts before raising an exception.
-DEFAULT_WRITE_GATT_MAX_ATTEMPTS = 3
-
-#: Default of all polls to the light updating the light objects internal state.
-DEFAULT_POLL_WRITES_STATE = True
-
-#: Default amount of time to scan for a light for in the discovery method.
-DEFAULT_DISCOVER_TIME = 5
-
-#: Default time to wait in the reconnect method between connecting and disconnecting.
-DEFAULT_RECONNECT_DELAY = 3
-
-#: Maximum amount of automatic reconnection attempts the program will make.
-DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
-
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class TLVTag(IntEnum):
-    ON_OFF = 1
-    BRIGHTNESS = 2
-    COLOUR_TEMP = 3
-    COLOUR_XY = 4
-    TRANSITION = 5
-    EFFECT_TYPE = 6
-    EFFECT_SPEED = 8
-
-
-class EffectType(IntEnum):
-    NONE = 0
-    CANDLE = 1
-    FIREPLACE = 2
-    PRISM = 3
-    SUNRISE = 9
-    SPARKLE = 10
-    OPAL = 11
-    GLISTEN = 12
-    SUNSET = 13
-    UNDERWATER = 14
-    COSMOS = 15
-    SUNBEAM = 16
-    ENCHANT = 17
-
-    @classmethod
-    def _missing_(cls, value):
-        _LOGGER.warning(
-            f"Unknown effect type: '{value}' reported by light, using default of none!"
-        )
-        return cls.NONE
-
-
-class TLVListContainer(ListContainer):
-
-    def get(self, key: TLVTag) -> Any | None:
-        for item in self:
-            if int(item.tag) == key.value:
-                return item.value
-        return None
-
-
-TLV_EFFECT = ExprAdapter(
-    GreedyRange(
-        Struct(
-            "tag" / ConstructEnum(Int8ul, TLVTag),
-            "value"
-            / Prefixed(
-                Int8ul,
-                Switch(
-                    lambda ctx: int(ctx.tag),
-                    {
-                        TLVTag.ON_OFF: Flag,
-                        TLVTag.BRIGHTNESS: Int8ul,
-                        TLVTag.COLOUR_TEMP: Int16ul,
-                        TLVTag.COLOUR_XY: ExprAdapter(
-                            Struct("x" / Int16ul, "y" / Int16ul),
-                            decoder=lambda c, ctx: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
-                            encoder=lambda v, ctx: Container(
-                                x=int(v[0] * 0xFFFF), y=int(v[1] * 0xFFFF)
-                            ),
-                        ),
-                        TLVTag.TRANSITION: Int16ul,
-                        TLVTag.EFFECT_TYPE: ExprAdapter(
-                            Int8ul,
-                            decoder=lambda val, ctx: EffectType(val),
-                            encoder=lambda obj, ctx: int(obj),
-                        ),
-                        TLVTag.EFFECT_SPEED: Int8ul,
-                        Default: Struct("Unknown" / GreedyBytes),
-                    },
-                ),
-            ),
-        )
-    ),
-    # Wrap the parsed list in custom container for tag lookup and debug logging
-    decoder=lambda obj, ctx: TLVListContainer(obj),
-    # Use encoder to allow for building flat
-    encoder=lambda obj, ctx: (
-        [{"tag": k, "value": v} for k, v in sorted(obj.items())]
-        if isinstance(obj, dict)
-        else obj
-    ),
-)
-
-
-class HueBleError(Exception):
-    """
-    Base exception of HueBLE.
-    """
-
-    pass
-
-
-class ConnectionError(HueBleError):
-    """
-    Exception raised when connecting to a device fails.
-    """
-
-    pass
-
-
-class InitialConnectionError(HueBleError):
-    """
-    Exception raised when the initial pre-pair pre-communication connect call fails.
-    """
-
-    pass
-
-
-class PairingError(HueBleError):
-    """
-    Exception raised when pairing to a device fails.
-    """
-
-    pass
-
-
-class ReadWriteError(HueBleError):
-    """
-    Exception raised when reading or writing a GATT attribute fails.
-    """
-
-    pass
-
-
-class ServicesError(HueBleError):
-    """
-    Exception raised when service discovery/subscription fails.
-    """
-
-    pass
-
-
-class CallbackError(HueBleError):
-    """
-    Exception raised when a callback raises an error.
-    """
-
-    pass
 
 
 class HueBleLight(object):
@@ -848,7 +624,7 @@ class HueBleLight(object):
             return
         try:
             await self._client.disconnect()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.exception(
                 f"""Timeout attempting to disconnect from "{self.name}"."""
             )
@@ -1664,32 +1440,3 @@ class HueBleLight(object):
 
         Returns None if support status is unknown."""
         return self._supports_effects
-
-
-async def discover_lights(
-    scanner: BleakScanner | None = None, timeout: int = DEFAULT_DISCOVER_TIME
-) -> list[BLEDevice]:
-    """Scanning feature
-    Scans the BLE neighborhood for Hue BLE light(s) and returns
-    a list of nearby lights based upon detection of a known UUID.
-    """
-
-    if scanner is None:
-        scanner = BleakScanner
-
-    devices = []
-
-    # Callback for when advertising data is received
-    def callback(device, advertising_data):
-        if (
-            UUID_HUE_IDENTIFIER in advertising_data.service_uuids
-            and device not in devices
-        ):
-            devices.append(device)
-
-    # Scan for timeout seconds
-    async with BleakScanner(callback) as scanner:
-        await asyncio.sleep(timeout)
-
-    # Return what we found
-    return devices
