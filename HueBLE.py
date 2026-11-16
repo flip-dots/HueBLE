@@ -294,27 +294,42 @@ class HueBleLight(object):
             f""" "{ble_device.details}"."""
         )
 
-        self._ble_device = ble_device
-        self._client: BleakClient = None
-        self._manufacturer = None
-        self._model = None
-        self._fw = None
-        self._zigbee_address = None
-        self._light_name = None
-        self._power_on = False
-        self._brightness = None
-        self._colour_temp = None
-        self._minimum_mireds = MIN_MIREDS
-        self._maximum_mireds = MAX_MIREDS
-        self._colour_xy = None
-        self._effect = None
-        self._effect_speed = None
-
+        # Internals
+        self._ble_device: BLEDevice = ble_device
+        self._client: BleakClient | None = None
         self._state_changed_callbacks: list[Callable[[], None]] = []
-        self._expect_disconnect = True
-        self._connection_attempts = 0
+        self._expect_disconnect: bool = True
+        self._connection_attempts: int = 0
         self._connection_lock: asyncio.Lock = asyncio.Lock()
         self._state_update_lock: asyncio.Lock = asyncio.Lock()
+
+        # Light state
+        self._manufacturer: str | None = None
+        self._model: str | None = None
+        self._fw: str | None = None
+        self._zigbee_address: str | None = None
+        self._light_name: str | None = None
+        self._power_on: bool | None = None
+        self._brightness: int | None = None
+        self._colour_temp: int | None = None
+        self._minimum_mireds = MIN_MIREDS
+        self._maximum_mireds = MAX_MIREDS
+        self._colour_xy: tuple[float, float] | None = None
+        self._effect: EffectType | None = None
+        self._effect_speed: int | None = None
+
+        # Light feature support
+        self._supports_metadata_manufacturer: bool | None = None
+        self._supports_metadata_model: bool | None = None
+        self._supports_metadata_firmware: bool | None = None
+        self._supports_metadata_zigbee_address: bool | None = None
+        self._supports_metadata_name_in_app: bool | None = None
+
+        self._supports_on_off: bool | None = None
+        self._supports_brightness: bool | None = None
+        self._supports_colour_temp: bool | None = None
+        self._supports_colour_xy: bool | None = None
+        self._supports_effects: bool | None = None
 
     def add_callback_on_state_changed(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on light state changes. Triggers
@@ -476,6 +491,7 @@ class HueBleLight(object):
                 power_on = tlv.get(TLVTag.ON_OFF)
                 if power_on != self._power_on:
                     state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+                    self._supports_on_off = True
                     self._power_on = power_on
 
                 brightness = tlv.get(TLVTag.BRIGHTNESS)
@@ -484,6 +500,7 @@ class HueBleLight(object):
                         self._brightness,
                         brightness,
                     )
+                    self._supports_brightness = True
                     self._brightness = brightness
 
                 colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
@@ -492,6 +509,7 @@ class HueBleLight(object):
                         self._colour_temp,
                         colour_temp,
                     )
+                    self._supports_colour_temp = True
                     self._colour_temp = colour_temp
 
                 colour_xy = tlv.get(TLVTag.COLOUR_XY)
@@ -500,6 +518,7 @@ class HueBleLight(object):
                         self._colour_xy,
                         colour_xy,
                     )
+                    self._supports_colour_xy = True
                     self._colour_xy = colour_xy
 
                 effect_type = tlv.get(TLVTag.EFFECT_TYPE)
@@ -508,6 +527,7 @@ class HueBleLight(object):
                         self._effect,
                         effect_type,
                     )
+                    self._supports_effects = True
                     self._effect = effect_type
 
                 effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
@@ -516,6 +536,7 @@ class HueBleLight(object):
                         self._effect_speed,
                         effect_speed,
                     )
+                    self._supports_effects = True
                     self._effect_speed = effect_speed
 
                 _LOGGER.debug(
@@ -785,84 +806,36 @@ class HueBleLight(object):
         if _LOGGER.isEnabledFor(logging.DEBUG):
             await self.print_services()
 
-        # Determine available services
-        if self._client.services.get_characteristic(UUID_MANUFACTURER):
-            self._manufacturer = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the manufacturer metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_MODEL):
-            self._model = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the model metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_FW_VERSION):
-            self._fw = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the firmware version metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_ZIGBEE_ADDRESS):
-            self._zigbee_address = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the ZigBee address metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_NAME):
-            self._light_name = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the light name."""
-            )
-        if self._client.services.get_characteristic(UUID_POWER) is not None:
-            self._power_on = False
-        else:
-            _LOGGER.error(
-                f"""Light "{self.name}" does not appear to """
-                f"""support turning on and off."""
-            )
-            self._power_on = None
-        if self._client.services.get_characteristic(UUID_BRIGHTNESS) is not None:
-            self._brightness = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the brightness."""
-            )
-            self._brightness = None
-        if self._client.services.get_characteristic(UUID_TEMPERATURE) is not None:
-            self._colour_temp = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the colour temp."""
-            )
-            self._colour_temp = None
-        if self._client.services.get_characteristic(UUID_XY_COLOUR) is not None:
-            self._colour_xy = (0.0, 0.0)
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the XY colour."""
-            )
-            self._colour_xy = None
-        if self._client.services.get_characteristic(UUID_EFFECTS) is not None:
-            self._effect = EffectType.NONE
-            self._effect_speed = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing effects."""
-            )
-            self._effect = None
-            self._effect_speed = None
+        self._supports_metadata_manufacturer = (
+            self._client.services.get_characteristic(UUID_MANUFACTURER) is not None
+        )
+        self._supports_metadata_model = (
+            self._client.services.get_characteristic(UUID_MODEL) is not None
+        )
+        self._supports_metadata_firmware = (
+            self._client.services.get_characteristic(UUID_FW_VERSION) is not None
+        )
+        self._supports_metadata_zigbee_address = (
+            self._client.services.get_characteristic(UUID_ZIGBEE_ADDRESS) is not None
+        )
+        self._supports_metadata_name_in_app = (
+            self._client.services.get_characteristic(UUID_NAME) is not None
+        )
+        self._supports_on_off = (
+            self._client.services.get_characteristic(UUID_POWER) is not None
+        )
+        self._supports_brightness = (
+            self._client.services.get_characteristic(UUID_BRIGHTNESS) is not None
+        )
+        self._supports_colour_temp = (
+            self._client.services.get_characteristic(UUID_TEMPERATURE) is not None
+        )
+        self._supports_colour_xy = (
+            self._client.services.get_characteristic(UUID_XY_COLOUR) is not None
+        )
+        self._supports_effects = (
+            self._client.services.get_characteristic(UUID_EFFECTS) is not None
+        )
 
     async def disconnect(self) -> None:
         """Disconnects the program from the light.
@@ -915,35 +888,35 @@ class HueBleLight(object):
             async with self._state_update_lock:
                 _LOGGER.debug(f"""Processing state update request for "{self.name}".""")
 
-                if self._manufacturer:
+                if self._supports_metadata_manufacturer:
                     prev = self.manufacturer
                     if prev != await self.poll_manufacturer(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling manufacturer")
 
-                if self._model:
+                if self._supports_metadata_model:
                     prev = self.model
                     if prev != await self.poll_model(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling model")
 
-                if self._fw:
+                if self._supports_metadata_firmware:
                     prev = self.firmware
                     if prev != await self.poll_firmware(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling firmware version")
 
-                if self._zigbee_address:
+                if self._supports_metadata_zigbee_address:
                     prev = self.zigbee_address
                     if prev != await self.poll_zigbee_address(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling ZigBee address")
 
-                if self._light_name:
+                if self._supports_metadata_name_in_app:
                     prev = self.name_in_app
                     if prev != await self.poll_light_name(write_state=True):
                         state_changed = True
@@ -1214,6 +1187,7 @@ class HueBleLight(object):
         if power_on != self._power_on:
             state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
             if write_state:
+                self._supports_on_off = True
                 self._power_on = power_on
 
         brightness = tlv.get(TLVTag.BRIGHTNESS)
@@ -1223,6 +1197,7 @@ class HueBleLight(object):
                 brightness,
             )
             if write_state:
+                self._supports_brightness = True
                 self._brightness = brightness
 
         colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
@@ -1232,6 +1207,7 @@ class HueBleLight(object):
                 colour_temp,
             )
             if write_state:
+                self._supports_colour_temp = True
                 self._colour_temp = colour_temp
 
         colour_xy = tlv.get(TLVTag.COLOUR_XY)
@@ -1241,6 +1217,7 @@ class HueBleLight(object):
                 colour_xy,
             )
             if write_state:
+                self._supports_colour_xy = True
                 self._colour_xy = colour_xy
 
         effect_type = tlv.get(TLVTag.EFFECT_TYPE)
@@ -1626,46 +1603,67 @@ class HueBleLight(object):
         # Else the light supports colour temperature and XY colour
         # The light is in colour temperature mode when the XY colour
         # is (0.0, 0.0) or (1.0, 1.0)
-        else:
-            return self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0)
+        elif self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0):
+            return True
+
+        # If we do not know what the XY colour is but do know what the colour temp is
+        elif self._colour_xy is None and self._colour_temp is not None:
+            return True
+
+        # If we do not know the colour temp but we do know the xy colour
+        elif self._colour_xy is not None and self._colour_temp is None:
+            return False
+
+        # Otherwise we do not know
+        return None
 
     @property
-    def effect(self) -> tuple[EffectType, int] | None:
+    def effect(self) -> tuple[EffectType | None, int | None] | None:
         """Effect as tuple of EffectType enum and effect speed.
         Returns None if the feature is not supported by the light.
         """
         if self.supports_effects:
             return (self._effect, self._effect_speed)
         else:
-            None
+            return None
 
     @property
-    def supports_on_off(self) -> bool:
+    def supports_on_off(self) -> bool | None:
         """Does the light support turning on and off.
         Yes I know it's silly but its for forwards compatibility
         in case a bluetooth sensor is ever released.
+
+        Returns None if support status is unknown.
         """
-        return self._power_on is not None
+        return self._supports_on_off
 
     @property
-    def supports_brightness(self) -> bool:
-        """Does the light support brightness control."""
-        return self._brightness is not None
+    def supports_brightness(self) -> bool | None:
+        """Does the light support brightness control.
+
+        Returns None if support status is unknown."""
+        return self._supports_brightness
 
     @property
-    def supports_colour_temp(self) -> bool:
-        """Does the light support colour temperature control."""
-        return self._colour_temp is not None
+    def supports_colour_temp(self) -> bool | None:
+        """Does the light support colour temperature control.
+
+        Returns None if support status is unknown."""
+        return self._supports_colour_temp
 
     @property
-    def supports_colour_xy(self) -> bool:
-        """Does the light support XY (RGB) colour control."""
-        return self._colour_xy is not None
+    def supports_colour_xy(self) -> bool | None:
+        """Does the light support XY (RGB) colour control.
+
+        Returns None if support status is unknown."""
+        return self._supports_colour_xy
 
     @property
-    def supports_effects(self) -> bool:
-        """Does the light support effect control."""
-        return self._effect is not None
+    def supports_effects(self) -> bool | None:
+        """Does the light support effect control.
+
+        Returns None if support status is unknown."""
+        return self._supports_effects
 
 
 async def discover_lights(
