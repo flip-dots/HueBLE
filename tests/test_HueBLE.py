@@ -17,14 +17,15 @@ from bleak.exc import BleakError
 import HueBLE
 from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
-from tests.helpers import MockDevice, sleep_side_effect
+from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "command_uuid, command_bytes, responses, function, args, expected_props",
+    "supported_uuids, command_uuid, command_bytes, responses, function, args, expected_props",
     [
         pytest.param(
+            [HueBLE.const.UUID_POWER],
             HueBLE.const.UUID_POWER,
             bytes.fromhex("01"),
             {HueBLE.const.UUID_POWER: bytes.fromhex("01")},
@@ -34,6 +35,20 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="power_on",
         ),
         pytest.param(
+            [HueBLE.const.UUID_POWER],
+            HueBLE.const.UUID_POWER,
+            bytes.fromhex("01"),
+            {
+                HueBLE.const.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex("010101"),
+            },
+            "set_power",
+            [True],
+            {"power_state": True},
+            id="power_on_and_effect",
+        ),
+        pytest.param(
+            [HueBLE.const.UUID_POWER],
             HueBLE.const.UUID_POWER,
             bytes.fromhex("00"),
             {HueBLE.const.UUID_POWER: bytes.fromhex("00")},
@@ -43,6 +58,7 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="power_off",
         ),
         pytest.param(
+            [HueBLE.const.UUID_BRIGHTNESS],
             HueBLE.const.UUID_BRIGHTNESS,
             bytes.fromhex("05"),
             {HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("05")},
@@ -52,6 +68,7 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="brightness",
         ),
         pytest.param(
+            [HueBLE.const.UUID_TEMPERATURE],
             HueBLE.const.UUID_TEMPERATURE,
             bytes.fromhex("2C01"),
             {HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("2C01")},
@@ -61,6 +78,17 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_temp",
         ),
         pytest.param(
+            [HueBLE.const.UUID_TEMPERATURE, HueBLE.const.UUID_XY_COLOUR],
+            HueBLE.const.UUID_TEMPERATURE,
+            bytes.fromhex("2C01"),
+            {HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("2C01")},
+            "set_colour_temp",
+            [300],
+            {"colour_temp": 300},
+            id="colour_temp_with_xy_supported",
+        ),
+        pytest.param(
+            [HueBLE.const.UUID_TEMPERATURE, HueBLE.const.UUID_XY_COLOUR],
             HueBLE.const.UUID_XY_COLOUR,
             pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)),
             {
@@ -77,6 +105,24 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_xy",
         ),
         pytest.param(
+            [HueBLE.const.UUID_XY_COLOUR],
+            HueBLE.const.UUID_XY_COLOUR,
+            pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)),
+            {
+                HueBLE.const.UUID_XY_COLOUR: pack(
+                    "<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)
+                )
+            },
+            "set_colour_xy",
+            [0.7, 0.5],
+            {
+                "colour_xy": (0.6999923704890516, 0.49999237048905165),
+                "colour_temp_mode": None,
+            },
+            id="colour_xy_only",
+        ),
+        pytest.param(
+            [HueBLE.const.UUID_TEMPERATURE, HueBLE.const.UUID_XY_COLOUR],
             HueBLE.const.UUID_TEMPERATURE,
             bytes.fromhex("5E01"),
             {
@@ -95,6 +141,31 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_temp_mode",
         ),
         pytest.param(
+            [HueBLE.const.UUID_TEMPERATURE],
+            HueBLE.const.UUID_TEMPERATURE,
+            bytes.fromhex("5E01"),
+            {
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("5E01"),
+                HueBLE.const.UUID_XY_COLOUR: pack(
+                    "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
+                ),
+            },
+            "set_colour_temp",
+            [350],
+            {
+                "colour_temp": 350,
+                "colour_xy": None,
+                "colour_temp_mode": True,
+            },
+            id="colour_temp_mode_no_xy",
+        ),
+        pytest.param(
+            [
+                HueBLE.const.UUID_POWER,
+                HueBLE.const.UUID_TEMPERATURE,
+                HueBLE.const.UUID_XY_COLOUR,
+                HueBLE.const.UUID_EFFECTS,
+            ],
             HueBLE.const.UUID_EFFECTS,
             bytes.fromhex("01010102015004049bc54f3606010108015e"),
             {
@@ -112,6 +183,12 @@ from tests.helpers import MockDevice, sleep_side_effect
             id="colour_effect",
         ),
         pytest.param(
+            [
+                HueBLE.const.UUID_POWER,
+                HueBLE.const.UUID_TEMPERATURE,
+                HueBLE.const.UUID_XY_COLOUR,
+                HueBLE.const.UUID_EFFECTS,
+            ],
             HueBLE.const.UUID_EFFECTS,
             bytes.fromhex("01010102015003022c0106010108015e"),
             {
@@ -128,9 +205,32 @@ from tests.helpers import MockDevice, sleep_side_effect
             },
             id="temperature_effect",
         ),
+        pytest.param(
+            [
+                HueBLE.const.UUID_POWER,
+                HueBLE.const.UUID_TEMPERATURE,
+                HueBLE.const.UUID_EFFECTS,
+            ],
+            HueBLE.const.UUID_EFFECTS,
+            bytes.fromhex("01010102015003022c0106010108015e"),
+            {
+                HueBLE.const.UUID_EFFECTS: bytes.fromhex(
+                    "01010102015003022c0106010108015e"
+                ),
+            },
+            "set_temperature_effect",
+            [300, 80, HueBLE.EffectType.CANDLE, 94],
+            {
+                "effect": (HueBLE.EffectType.CANDLE, 94),
+                "colour_temp": 300,
+                "colour_temp_mode": True,
+            },
+            id="temperature_effect_no_xy",
+        ),
     ],
 )
 async def test_commands(
+    supported_uuids: list[str],
     command_uuid: str,
     command_bytes: bytes,
     responses: dict[str, bytes],
@@ -143,6 +243,7 @@ async def test_commands(
     a notification sent in response to a command results in the value
     being updated.
 
+    :param supported_uuids: List of UUIDs the mock device advertises.
     :param command_uuid: The UUID the commands should be sent to and the response should come from.
     :param command_bytes: The bytes that should be written to the mock light.
     :param responses: Mapping of UUIDs to bytes which should be sent as a notification in response to command.
@@ -154,6 +255,12 @@ async def test_commands(
     device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
 
     async with MockDevice() as mock_bluetooth:
+
+        # Mocked client.services.get_characteristic for BleakClient.
+        def exists(uuid: str) -> dict[str, str] | None:
+            return {"something": "not_none"} if uuid in supported_uuids else None
+
+        mock_bluetooth.set_side_effects(services_side_effect=exists)
 
         # We expect the connection to succeed
         await device.connect()
@@ -781,8 +888,8 @@ async def test_authenticated(
             True,
             None,
             None,
-            None,
-            [True, True, Exception("NOPE BAD SUBSCRIPTION")],
+            mock_get_services_fn,
+            [Exception("NOPE BAD SUBSCRIPTION")],
             None,
             ConnectionError,
             [

@@ -13,7 +13,43 @@ from unittest import mock
 
 from bleak import BleakClient
 
+from HueBLE.const import (
+    UUID_BRIGHTNESS,
+    UUID_EFFECTS,
+    UUID_FW_VERSION,
+    UUID_HUE_IDENTIFIER,
+    UUID_MANUFACTURER,
+    UUID_MODEL,
+    UUID_NAME,
+    UUID_POWER,
+    UUID_TEMPERATURE,
+    UUID_XY_COLOUR,
+    UUID_ZIGBEE_ADDRESS,
+)
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def mock_get_services_fn(value: str) -> dict[str, str] | None:
+
+    return (
+        {"fake_service": "fake_value"}
+        if value
+        in [
+            UUID_BRIGHTNESS,
+            UUID_EFFECTS,
+            UUID_FW_VERSION,
+            UUID_HUE_IDENTIFIER,
+            UUID_MANUFACTURER,
+            UUID_MODEL,
+            UUID_NAME,
+            UUID_POWER,
+            UUID_TEMPERATURE,
+            UUID_XY_COLOUR,
+            UUID_ZIGBEE_ADDRESS,
+        ]
+        else None
+    )
 
 
 @dataclass

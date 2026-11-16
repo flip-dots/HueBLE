@@ -196,63 +196,6 @@ class HueBleLight(object):
         :raises Exception: If unable to subscribe to supported features.
         """
 
-        # If turning off an on is supported :|
-        if self.supports_on_off:
-
-            def report(cHandle: int, data: bytearray) -> None:
-                self._power_on = bool(data[0])
-                _LOGGER.debug(
-                    f"""Light "{self.name}" has informed us of a new"""
-                    f""" power state of ({self.power_state})"""
-                )
-                self._run_state_changed_callbacks()
-
-            _LOGGER.debug("Subscribing to power state UUID")
-            await self._client.start_notify(UUID_POWER, report)
-
-        # If brightness is supported
-        if self.supports_brightness:
-
-            def report(cHandle: int, data: bytearray) -> None:
-                self._brightness = data[0]
-                _LOGGER.debug(
-                    f"""Light "{self.name}" has informed us of a new"""
-                    f""" brightness state of ({self.brightness})"""
-                )
-                self._run_state_changed_callbacks()
-
-            _LOGGER.debug("Subscribing to brightness UUID")
-            await self._client.start_notify(UUID_BRIGHTNESS, report)
-
-        # If colour temperature is supported
-        if self.supports_colour_temp:
-
-            def report(cHandle: int, data: bytearray) -> None:
-                self._colour_temp = int.from_bytes(data, "little")
-                _LOGGER.debug(
-                    f"""Light "{self.name}" has informed us of a new"""
-                    f""" colour temp state of ({self.colour_temp})"""
-                )
-                self._run_state_changed_callbacks()
-
-            _LOGGER.debug("Subscribing to colour temperature UUID")
-            await self._client.start_notify(UUID_TEMPERATURE, report)
-
-        # If XY colour is supported
-        if self.supports_colour_xy:
-
-            def report(cHandle: int, data: bytearray) -> None:
-                x, y = unpack("<HH", data)
-                self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
-                _LOGGER.debug(
-                    f"""Light "{self.name}" has informed us of a new"""
-                    f""" XY colour state of ({self.colour_xy})"""
-                )
-                self._run_state_changed_callbacks()
-
-            _LOGGER.debug("Subscribing to XY colour UUID")
-            await self._client.start_notify(UUID_XY_COLOUR, report)
-
         # If Effects is supported
         if self.supports_effects:
 
@@ -319,12 +262,77 @@ class HueBleLight(object):
                     f"""Light "{self.name}" has informed us of a new"""
                     f""" Effect state of ({self.effect}) with diff ({state_difference})"""
                 )
+                _LOGGER.debug(f"Light state: {self}")
 
                 if state_difference:
                     self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to Effects UUID")
             await self._client.start_notify(UUID_EFFECTS, report)
+
+            # If we can use the effects API we do not need the old one
+            return
+
+        # If turning off an on is supported :|
+        if self.supports_on_off:
+
+            def report(cHandle: int, data: bytearray) -> None:
+                self._power_on = bool(data[0])
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" power state of ({self.power_state})"""
+                )
+                _LOGGER.debug(f"Light state: {self}")
+                self._run_state_changed_callbacks()
+
+            _LOGGER.debug("Subscribing to power state UUID")
+            await self._client.start_notify(UUID_POWER, report)
+
+        # If brightness is supported
+        if self.supports_brightness:
+
+            def report(cHandle: int, data: bytearray) -> None:
+                self._brightness = data[0]
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" brightness state of ({self.brightness})"""
+                )
+                _LOGGER.debug(f"Light state: {self}")
+                self._run_state_changed_callbacks()
+
+            _LOGGER.debug("Subscribing to brightness UUID")
+            await self._client.start_notify(UUID_BRIGHTNESS, report)
+
+        # If colour temperature is supported
+        if self.supports_colour_temp:
+
+            def report(cHandle: int, data: bytearray) -> None:
+                self._colour_temp = int.from_bytes(data, "little")
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" colour temp state of ({self.colour_temp})"""
+                )
+                _LOGGER.debug(f"Light state: {self}")
+                self._run_state_changed_callbacks()
+
+            _LOGGER.debug("Subscribing to colour temperature UUID")
+            await self._client.start_notify(UUID_TEMPERATURE, report)
+
+        # If XY colour is supported
+        if self.supports_colour_xy:
+
+            def report(cHandle: int, data: bytearray) -> None:
+                x, y = unpack("<HH", data)
+                self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" XY colour state of ({self.colour_xy})"""
+                )
+                _LOGGER.debug(f"Light state: {self}")
+                self._run_state_changed_callbacks()
+
+            _LOGGER.debug("Subscribing to XY colour UUID")
+            await self._client.start_notify(UUID_XY_COLOUR, report)
 
     async def connect(
         self,
@@ -699,34 +707,6 @@ class HueBleLight(object):
                 else:
                     _LOGGER.debug("Light does not support polling light name")
 
-                if self.supports_on_off:
-                    prev = self.power_state
-                    if prev != await self.poll_power_state(write_state=True):
-                        state_changed = True
-                else:
-                    _LOGGER.debug("Light does not support polling power state")
-
-                if self.supports_brightness:
-                    prev = self.brightness
-                    if prev != await self.poll_brightness(write_state=True):
-                        state_changed = True
-                else:
-                    _LOGGER.debug("Light does not support polling brightness")
-
-                if self.supports_colour_temp:
-                    prev = self.colour_temp
-                    if prev != await self.poll_colour_temp(write_state=True):
-                        state_changed = True
-                else:
-                    _LOGGER.debug("Light does not support polling colour temp")
-
-                if self.supports_colour_xy:
-                    prev = self.colour_xy
-                    if prev != await self.poll_colour_xy(write_state=True):
-                        state_changed = True
-                else:
-                    _LOGGER.debug("Light does not support polling XY colour")
-
                 if self.supports_effects:
                     prev_effect_speed = self._effect_speed
                     prev_effect = self._effect
@@ -734,25 +714,42 @@ class HueBleLight(object):
                     effect, effect_speed = await self.poll_effects(write_state=True)
                     if prev_effect != effect or prev_effect_speed != effect_speed:
                         state_changed = True
+
+                # If the effects API is supported then we do not need to poll the
+                # other values as the effects API will contain the same info
                 else:
                     _LOGGER.debug("Light does not support polling effects")
 
+                    if self.supports_on_off:
+                        prev = self.power_state
+                        if prev != await self.poll_power_state(write_state=True):
+                            state_changed = True
+                    else:
+                        _LOGGER.debug("Light does not support polling power state")
+
+                    if self.supports_brightness:
+                        prev = self.brightness
+                        if prev != await self.poll_brightness(write_state=True):
+                            state_changed = True
+                    else:
+                        _LOGGER.debug("Light does not support polling brightness")
+
+                    if self.supports_colour_temp:
+                        prev = self.colour_temp
+                        if prev != await self.poll_colour_temp(write_state=True):
+                            state_changed = True
+                    else:
+                        _LOGGER.debug("Light does not support polling colour temp")
+
+                    if self.supports_colour_xy:
+                        prev = self.colour_xy
+                        if prev != await self.poll_colour_xy(write_state=True):
+                            state_changed = True
+                    else:
+                        _LOGGER.debug("Light does not support polling XY colour")
+
                 # Print it all out for debugging
-                _LOGGER.debug(
-                    f"""Data from light "{self.name}"\n"""
-                    f"""MAC address "{self.address}"\n"""
-                    f"""Name in Hue app: "{self.name_in_app}"\n"""
-                    f"""Manufacturer: "{self.manufacturer}"\n"""
-                    f"""Model: "{self.model}"\n"""
-                    f"""Firmware: "{self.firmware}"\n"""
-                    f"""ZigBee Address: "{self.zigbee_address}"\n"""
-                    f"""Power state: "{self.power_state}"\n"""
-                    f"""Brightness: "{self.brightness}"\n"""
-                    f"""Colour temp: "{self.colour_temp}"\n"""
-                    f"""Colour XY: "{self.colour_xy}"\n"""
-                    f"""Effects: "{self._effect}"\n"""
-                    f"""Effect speed: "{self._effect_speed}"."""
-                )
+                _LOGGER.debug(f"Light state: {self}")
 
             # Callbacks are run outside of the state update lock
             if run_callbacks_if_changed and state_changed:
@@ -823,7 +820,7 @@ class HueBleLight(object):
         Prints all available GATT services in the debug log.
         See: `original <https://github.com/hbldh/bleak/blob/develop/examples/service_explorer.py>`_
         """
-
+        _LOGGER.debug("==== START SERVICES ====")
         for service in self._client.services:
             _LOGGER.debug("[Service] %s", service)
 
@@ -854,6 +851,7 @@ class HueBleLight(object):
                         )
                     except Exception as e:
                         _LOGGER.debug("    [Descriptor] %s, Error: %s", descriptor, e)
+        _LOGGER.debug("==== END SERVICES ====")
 
     async def poll_manufacturer(
         self, write_state: bool = DEFAULT_POLL_WRITES_STATE
@@ -1440,3 +1438,42 @@ class HueBleLight(object):
 
         Returns None if support status is unknown."""
         return self._supports_effects
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}("
+            # Internals
+            f"ble_device={self._ble_device!r}, "
+            f"client={self._client!r}, "
+            f"state_changed_callbacks={len(self._state_changed_callbacks)}, "
+            f"expect_disconnect={self._expect_disconnect!r}, "
+            f"connection_attempts={self._connection_attempts!r}, "
+            f"connection_lock_locked={self._connection_lock.locked()!r}, "
+            f"state_update_lock_locked={self._state_update_lock.locked()!r}, "
+            # Light state
+            f"manufacturer={self._manufacturer!r}, "
+            f"model={self._model!r}, "
+            f"fw={self._fw!r}, "
+            f"zigbee_address={self._zigbee_address!r}, "
+            f"light_name={self._light_name!r}, "
+            f"power_on={self._power_on!r}, "
+            f"brightness={self._brightness!r}, "
+            f"colour_temp={self._colour_temp!r}, "
+            f"minimum_mireds={self._minimum_mireds!r}, "
+            f"maximum_mireds={self._maximum_mireds!r}, "
+            f"colour_xy={self._colour_xy!r}, "
+            f"effect={self._effect!r}, "
+            f"effect_speed={self._effect_speed!r}, "
+            # Light feature support
+            f"supports_metadata_manufacturer={self._supports_metadata_manufacturer!r}, "
+            f"supports_metadata_model={self._supports_metadata_model!r}, "
+            f"supports_metadata_firmware={self._supports_metadata_firmware!r}, "
+            f"supports_metadata_zigbee_address={self._supports_metadata_zigbee_address!r}, "
+            f"supports_metadata_name_in_app={self._supports_metadata_name_in_app!r}, "
+            f"supports_on_off={self._supports_on_off!r}, "
+            f"supports_brightness={self._supports_brightness!r}, "
+            f"supports_colour_temp={self._supports_colour_temp!r}, "
+            f"supports_colour_xy={self._supports_colour_xy!r}, "
+            f"supports_effects={self._supports_effects!r}"
+            f")"
+        )
