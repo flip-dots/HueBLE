@@ -8,14 +8,33 @@ import asyncio
 import logging
 import platform
 import uuid
+from collections.abc import Callable
+from enum import IntEnum
+from struct import pack, unpack
+from typing import Any
+
 from bleak import BleakClient, BleakError, BleakScanner
 from bleak.backends import BleakBackend
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
-from struct import pack, unpack
-from typing import Callable
-from enum import Enum
+from construct import (
+    Container,
+    Default,
+    ExprAdapter,
+    Flag,
+    GreedyBytes,
+    GreedyRange,
+    Int8ul,
+    Int16ul,
+    ListContainer,
+    Prefixed,
+    Struct,
+    Switch,
+)
+from construct import (
+    Enum as ConstructEnum,
+)
 
 #: String containing manufacturer. Handle 15.
 UUID_MANUFACTURER = "00002a29-0000-1000-8000-00805f9b34fb"
@@ -117,41 +136,34 @@ DEFAULT_RECONNECT_DELAY = 3
 #: Maximum amount of automatic reconnection attempts the program will make.
 DEFAULT_MAX_RECONNECT_ATTEMPTS = -1
 
-#: data stream unpack format string for decoding colour with effect (effect API)
-UNPACK_EFFECT_API_COLOUR_WITH_EFFECT = "<xxBxxBxxHHxxBxxB"
-
-#: data stream unpack format string for decoding plain colour without effect (effect API)
-UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT = "<xxBxxBxxHH"
-
-#: data stream unpack format string for decoding temperature with effect (effect API)
-UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT = "<xxBxxBxxHxxBxxB"
-
-#: data stream unpack format string for decoding plain temperature without effect (effect API)
-UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT = "<xxBxxBxxH"
-
-#: data stream unpack format string for decoding the onoff-only report (effect API),
-#: sent by devices that only support on/off, e.g. the Hue smart plug
-UNPACK_EFFECT_API_ONOFF_ONLY = "<xxB"
-
 
 _LOGGER = logging.getLogger(__name__)
 
 
-#: Enum describing the different avaibale effects with their corresponding id
-class EffectType(Enum):
-    NONE = 0x00
-    CANDLE = 0x01
-    FIREPLACE = 0x02
-    PRISM = 0x03
-    SUNRISE = 0x09
-    SPARKLE = 0x0A
-    OPAL = 0x0B
-    GLISTEN = 0x0C
-    SUNSET = 0x0D
-    UNDERWATER = 0x0E
-    COSMOS = 0x0F
-    SUNBEAM = 0x10
-    ENCHANT = 0x11
+class TLVTag(IntEnum):
+    ON_OFF = 1
+    BRIGHTNESS = 2
+    COLOUR_TEMP = 3
+    COLOUR_XY = 4
+    TRANSITION = 5
+    EFFECT_TYPE = 6
+    EFFECT_SPEED = 8
+
+
+class EffectType(IntEnum):
+    NONE = 0
+    CANDLE = 1
+    FIREPLACE = 2
+    PRISM = 3
+    SUNRISE = 9
+    SPARKLE = 10
+    OPAL = 11
+    GLISTEN = 12
+    SUNSET = 13
+    UNDERWATER = 14
+    COSMOS = 15
+    SUNBEAM = 16
+    ENCHANT = 17
 
     @classmethod
     def _missing_(cls, value):
@@ -161,30 +173,57 @@ class EffectType(Enum):
         return cls.NONE
 
 
-#: EFFECT_COMMANDS (hex string) for the Effect Characteristic endpoint containing one byte id and one byte data length
-class EffectCommands(Enum):
-    ONOFF = "0101"
-    BRIGHTNESS = "0201"
-    TEMPERATURE = "0302"
-    COLOURXY = "0404"
-    TRANSITION_TIME = "0502"
-    EFFECT = "0601"
-    EFFECT_SPEED = "0801"
+class TLVListContainer(ListContainer):
+
+    def get(self, key: TLVTag) -> Any | None:
+        for item in self:
+            if int(item.tag) == key.value:
+                return item.value
+        return None
 
 
-def _transition_tlv(transition_ms: int) -> bytes:
-    if not isinstance(transition_ms, int):
-        raise TypeError("transition_ms must be an integer")
-    if transition_ms < 0 or transition_ms % 100 != 0:
-        raise ValueError("transition_ms must be a non-negative multiple of 100")
-
-    units = transition_ms // 100
-    if units > 0xFFFF:
-        raise ValueError("transition_ms is too large")
-
-    return bytes.fromhex(EffectCommands.TRANSITION_TIME.value) + units.to_bytes(
-        2, "little"
-    )
+TLV_EFFECT = ExprAdapter(
+    GreedyRange(
+        Struct(
+            "tag" / ConstructEnum(Int8ul, TLVTag),
+            "value"
+            / Prefixed(
+                Int8ul,
+                Switch(
+                    lambda ctx: int(ctx.tag),
+                    {
+                        TLVTag.ON_OFF: Flag,
+                        TLVTag.BRIGHTNESS: Int8ul,
+                        TLVTag.COLOUR_TEMP: Int16ul,
+                        TLVTag.COLOUR_XY: ExprAdapter(
+                            Struct("x" / Int16ul, "y" / Int16ul),
+                            decoder=lambda c, ctx: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
+                            encoder=lambda v, ctx: Container(
+                                x=int(v[0] * 0xFFFF), y=int(v[1] * 0xFFFF)
+                            ),
+                        ),
+                        TLVTag.TRANSITION: Int16ul,
+                        TLVTag.EFFECT_TYPE: ExprAdapter(
+                            Int8ul,
+                            decoder=lambda val, ctx: EffectType(val),
+                            encoder=lambda obj, ctx: int(obj),
+                        ),
+                        TLVTag.EFFECT_SPEED: Int8ul,
+                        Default: Struct("Unknown" / GreedyBytes),
+                    },
+                ),
+            ),
+        )
+    ),
+    # Wrap the parsed list in custom container for tag lookup and debug logging
+    decoder=lambda obj, ctx: TLVListContainer(obj),
+    # Use encoder to allow for building flat
+    encoder=lambda obj, ctx: (
+        [{"tag": k, "value": v} for k, v in sorted(obj.items())]
+        if isinstance(obj, dict)
+        else obj
+    ),
+)
 
 
 class HueBleError(Exception):
@@ -255,27 +294,42 @@ class HueBleLight(object):
             f""" "{ble_device.details}"."""
         )
 
-        self._ble_device = ble_device
-        self._client: BleakClient = None
-        self._manufacturer = None
-        self._model = None
-        self._fw = None
-        self._zigbee_address = None
-        self._light_name = None
-        self._power_on = False
-        self._brightness = None
-        self._colour_temp = None
-        self._minimum_mireds = MIN_MIREDS
-        self._maximum_mireds = MAX_MIREDS
-        self._colour_xy = None
-        self._effect = None
-        self._effect_speed = None
-
+        # Internals
+        self._ble_device: BLEDevice = ble_device
+        self._client: BleakClient | None = None
         self._state_changed_callbacks: list[Callable[[], None]] = []
-        self._expect_disconnect = True
-        self._connection_attempts = 0
+        self._expect_disconnect: bool = True
+        self._connection_attempts: int = 0
         self._connection_lock: asyncio.Lock = asyncio.Lock()
         self._state_update_lock: asyncio.Lock = asyncio.Lock()
+
+        # Light state
+        self._manufacturer: str | None = None
+        self._model: str | None = None
+        self._fw: str | None = None
+        self._zigbee_address: str | None = None
+        self._light_name: str | None = None
+        self._power_on: bool | None = None
+        self._brightness: int | None = None
+        self._colour_temp: int | None = None
+        self._minimum_mireds = MIN_MIREDS
+        self._maximum_mireds = MAX_MIREDS
+        self._colour_xy: tuple[float, float] | None = None
+        self._effect: EffectType | None = None
+        self._effect_speed: int | None = None
+
+        # Light feature support
+        self._supports_metadata_manufacturer: bool | None = None
+        self._supports_metadata_model: bool | None = None
+        self._supports_metadata_firmware: bool | None = None
+        self._supports_metadata_zigbee_address: bool | None = None
+        self._supports_metadata_name_in_app: bool | None = None
+
+        self._supports_on_off: bool | None = None
+        self._supports_brightness: bool | None = None
+        self._supports_colour_temp: bool | None = None
+        self._supports_colour_xy: bool | None = None
+        self._supports_effects: bool | None = None
 
     def add_callback_on_state_changed(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on light state changes. Triggers
@@ -427,92 +481,70 @@ class HueBleLight(object):
         if self.supports_effects:
 
             def report(cHandle: int, data: bytearray) -> None:
-                # since we have all the other callbacks already in place, we only call the state changed callbacks if the effect data changed
-                effect_state_changed = False
 
-                # since the endpoint can/is used for all modes of the bulb, we get different size reports based on the current operating mode
-                if len(data) == 18:
-                    # we got a colour effect report containing onoff, brightness, colour and effect data
-                    onoff, brightness, x, y, effect_raw, speed = unpack(
-                        UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, data
+                _LOGGER.debug(f"Effect bytes: {data.hex()}")
+                tlv = TLV_EFFECT.parse(data)
+                _LOGGER.debug(f"Parsed effect TLV: {tlv}")
+
+                state_difference: dict[str, tuple[Any, Any]] = {}
+
+                power_on = tlv.get(TLVTag.ON_OFF)
+                if power_on != self._power_on:
+                    state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+                    self._supports_on_off = True
+                    self._power_on = power_on
+
+                brightness = tlv.get(TLVTag.BRIGHTNESS)
+                if brightness != self._brightness:
+                    state_difference[TLVTag.BRIGHTNESS.name] = (
+                        self._brightness,
+                        brightness,
                     )
-                    effect = EffectType(effect_raw)
-
-                    if (self._effect is not effect) or (self._effect_speed != speed):
-                        effect_state_changed = True
-
-                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
+                    self._supports_brightness = True
                     self._brightness = brightness
-                    self._effect = effect
-                    self._effect_speed = speed
-                    self._power_on = bool(onoff)
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" Effect state of ({self.effect})"""
+                colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+                if colour_temp != self._colour_temp:
+                    state_difference[TLVTag.COLOUR_TEMP.name] = (
+                        self._colour_temp,
+                        colour_temp,
                     )
-                elif len(data) == 16:
-                    # we got a temperature effect report containing onoff, brightness, temperature and effect data
-                    onoff, brightness, temperature, effect_raw, speed = unpack(
-                        UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, data
-                    )
-                    effect = EffectType(effect_raw)
-
-                    if (self._effect is not effect) or (self._effect_speed != speed):
-                        effect_state_changed = True
-
-                    self._colour_temp = temperature
-                    self._brightness = brightness
-                    self._effect = effect
-                    self._effect_speed = speed
-                    self._power_on = bool(onoff)
-
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" Effect state of ({self.effect})"""
-                    )
-                elif len(data) == 12:
-                    # bulb is in colour mode, we got onoff, brightness and colourxy data
-                    onoff, brightness, x, y = unpack(
-                        UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, data
-                    )
-                    self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
-                    self._brightness = brightness
-                    self._power_on = bool(onoff)
-
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" XY colour state of ({self.colour_xy}) and brightness ({self.brightness})"""
-                    )
-                elif len(data) == 10:
-                    # bulb is in temperature mode, we got onoff, brightness and temperature
-                    onoff, brightness, colour_temp = unpack(
-                        UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, data
-                    )
+                    self._supports_colour_temp = True
                     self._colour_temp = colour_temp
-                    self._brightness = brightness
-                    self._power_on = bool(onoff)
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" colour temp state of ({self.colour_temp})"""
+                colour_xy = tlv.get(TLVTag.COLOUR_XY)
+                if colour_xy != self._colour_xy:
+                    state_difference[TLVTag.COLOUR_XY.name] = (
+                        self._colour_xy,
+                        colour_xy,
                     )
-                elif len(data) == 3:
-                    # device only reports its onoff value (e.g. smart plug)
-                    onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, data)[0]
-                    self._power_on = bool(onoff)
+                    self._supports_colour_xy = True
+                    self._colour_xy = colour_xy
 
-                    _LOGGER.debug(
-                        f"""Light "{self.name}" has informed us of a new"""
-                        f""" power state ({self._power_on})"""
+                effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+                if effect_type != self._effect:
+                    state_difference[TLVTag.EFFECT_TYPE.name] = (
+                        self._effect,
+                        effect_type,
                     )
-                else:
-                    # so far unkown
-                    _LOGGER.warning(
-                        f"unrecognized effect response with length {len(data)}: {data}"
-                    )
+                    self._supports_effects = True
+                    self._effect = effect_type
 
-                if effect_state_changed:
+                effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+                if effect_speed != self._effect_speed:
+                    state_difference[TLVTag.EFFECT_SPEED.name] = (
+                        self._effect_speed,
+                        effect_speed,
+                    )
+                    self._supports_effects = True
+                    self._effect_speed = effect_speed
+
+                _LOGGER.debug(
+                    f"""Light "{self.name}" has informed us of a new"""
+                    f""" Effect state of ({self.effect}) with diff ({state_difference})"""
+                )
+
+                if state_difference:
                     self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to Effects UUID")
@@ -774,84 +806,36 @@ class HueBleLight(object):
         if _LOGGER.isEnabledFor(logging.DEBUG):
             await self.print_services()
 
-        # Determine available services
-        if self._client.services.get_characteristic(UUID_MANUFACTURER):
-            self._manufacturer = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the manufacturer metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_MODEL):
-            self._model = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the model metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_FW_VERSION):
-            self._fw = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the firmware version metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_ZIGBEE_ADDRESS):
-            self._zigbee_address = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the ZigBee address metadata."""
-            )
-        if self._client.services.get_characteristic(UUID_NAME):
-            self._light_name = DEFAULT_METADATA_STRING
-        else:
-            _LOGGER.warning(
-                f"""Light "{self.name}" does not appear to """
-                f"""support polling the light name."""
-            )
-        if self._client.services.get_characteristic(UUID_POWER) is not None:
-            self._power_on = False
-        else:
-            _LOGGER.error(
-                f"""Light "{self.name}" does not appear to """
-                f"""support turning on and off."""
-            )
-            self._power_on = None
-        if self._client.services.get_characteristic(UUID_BRIGHTNESS) is not None:
-            self._brightness = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the brightness."""
-            )
-            self._brightness = None
-        if self._client.services.get_characteristic(UUID_TEMPERATURE) is not None:
-            self._colour_temp = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the colour temp."""
-            )
-            self._colour_temp = None
-        if self._client.services.get_characteristic(UUID_XY_COLOUR) is not None:
-            self._colour_xy = (0.0, 0.0)
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing the XY colour."""
-            )
-            self._colour_xy = None
-        if self._client.services.get_characteristic(UUID_EFFECTS) is not None:
-            self._effect = EffectType.NONE
-            self._effect_speed = 0
-        else:
-            _LOGGER.debug(
-                f"""Light "{self.name}" does not appear to """
-                f"""support changing effects."""
-            )
-            self._effect = None
-            self._effect_speed = None
+        self._supports_metadata_manufacturer = (
+            self._client.services.get_characteristic(UUID_MANUFACTURER) is not None
+        )
+        self._supports_metadata_model = (
+            self._client.services.get_characteristic(UUID_MODEL) is not None
+        )
+        self._supports_metadata_firmware = (
+            self._client.services.get_characteristic(UUID_FW_VERSION) is not None
+        )
+        self._supports_metadata_zigbee_address = (
+            self._client.services.get_characteristic(UUID_ZIGBEE_ADDRESS) is not None
+        )
+        self._supports_metadata_name_in_app = (
+            self._client.services.get_characteristic(UUID_NAME) is not None
+        )
+        self._supports_on_off = (
+            self._client.services.get_characteristic(UUID_POWER) is not None
+        )
+        self._supports_brightness = (
+            self._client.services.get_characteristic(UUID_BRIGHTNESS) is not None
+        )
+        self._supports_colour_temp = (
+            self._client.services.get_characteristic(UUID_TEMPERATURE) is not None
+        )
+        self._supports_colour_xy = (
+            self._client.services.get_characteristic(UUID_XY_COLOUR) is not None
+        )
+        self._supports_effects = (
+            self._client.services.get_characteristic(UUID_EFFECTS) is not None
+        )
 
     async def disconnect(self) -> None:
         """Disconnects the program from the light.
@@ -904,35 +888,35 @@ class HueBleLight(object):
             async with self._state_update_lock:
                 _LOGGER.debug(f"""Processing state update request for "{self.name}".""")
 
-                if self._manufacturer:
+                if self._supports_metadata_manufacturer:
                     prev = self.manufacturer
                     if prev != await self.poll_manufacturer(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling manufacturer")
 
-                if self._model:
+                if self._supports_metadata_model:
                     prev = self.model
                     if prev != await self.poll_model(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling model")
 
-                if self._fw:
+                if self._supports_metadata_firmware:
                     prev = self.firmware
                     if prev != await self.poll_firmware(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling firmware version")
 
-                if self._zigbee_address:
+                if self._supports_metadata_zigbee_address:
                     prev = self.zigbee_address
                     if prev != await self.poll_zigbee_address(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling ZigBee address")
 
-                if self._light_name:
+                if self._supports_metadata_name_in_app:
                     prev = self.name_in_app
                     if prev != await self.poll_light_name(write_state=True):
                         state_changed = True
@@ -1191,69 +1175,70 @@ class HueBleLight(object):
         self, write_state: bool = DEFAULT_POLL_WRITES_STATE
     ) -> tuple[EffectType, int]:
         """Gets the effect type and effect speed as enum and int between 0 and 255."""
-        buf = await self._read_gatt(UUID_EFFECTS)
+        data = await self._read_gatt(UUID_EFFECTS)
 
-        effect = EffectType.NONE
-        effect_speed = 0
+        _LOGGER.debug(f"Effect bytes: {data.hex()}")
+        tlv = TLV_EFFECT.parse(data)
+        _LOGGER.debug(f"Parsed effect TLV: {tlv}")
 
-        # if an effect is active, more data is returned
-        if len(buf) == 18:
-            onoff, brightness, x, y, effect_raw, speed = unpack(
-                UNPACK_EFFECT_API_COLOUR_WITH_EFFECT, buf
-            )
-            x_after = x / 0xFFFF
-            y_after = y / 0xFFFF
-            effect = EffectType(effect_raw)
-            effect_speed = speed
+        state_difference: dict[str, tuple[Any, Any]] = {}
+
+        power_on = tlv.get(TLVTag.ON_OFF)
+        if power_on != self._power_on:
+            state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
             if write_state:
-                self._colour_xy = (x_after, y_after)
+                self._supports_on_off = True
+                self._power_on = power_on
+
+        brightness = tlv.get(TLVTag.BRIGHTNESS)
+        if brightness != self._brightness:
+            state_difference[TLVTag.BRIGHTNESS.name] = (
+                self._brightness,
+                brightness,
+            )
+            if write_state:
+                self._supports_brightness = True
                 self._brightness = brightness
-                self._effect = effect
-                self._effect_speed = speed
-                self._power_on = bool(onoff)
-        elif len(buf) == 16:
-            onoff, brightness, temperature, effect_raw, speed = unpack(
-                UNPACK_EFFECT_API_TEMPERATURE_WITH_EFFECT, buf
-            )
-            effect = EffectType(effect_raw)
-            effect_speed = speed
-            if write_state:
-                self._colour_temp = temperature
-                self._brightness = brightness
-                self._effect = effect
-                self._effect_speed = speed
-                self._power_on = bool(onoff)
-        elif len(buf) == 12:
-            # it is colour and bightness
-            onoff, brightness, x, y = unpack(
-                UNPACK_EFFECT_API_COLOUR_WITHOUT_EFFECT, buf
-            )
-            x_after = x / 0xFFFF
-            y_after = y / 0xFFFF
-            if write_state:
-                self._colour_xy = (x_after, y_after)
-                self._brightness = brightness
-                self._power_on = bool(onoff)
-        elif len(buf) == 10:
-            # it is temperature mode
-            onoff, brightness, colour_temp = unpack(
-                UNPACK_EFFECT_API_TEMPERATURE_WITHOUT_EFFECT, buf
+
+        colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+        if colour_temp != self._colour_temp:
+            state_difference[TLVTag.COLOUR_TEMP.name] = (
+                self._colour_temp,
+                colour_temp,
             )
             if write_state:
+                self._supports_colour_temp = True
                 self._colour_temp = colour_temp
-                self._power_on = bool(onoff)
-        elif len(buf) == 3:
-            # device only reports its onoff value (e.g. smart plug)
-            onoff = unpack(UNPACK_EFFECT_API_ONOFF_ONLY, buf)[0]
-            if write_state:
-                self._power_on = bool(onoff)
-        else:
-            # so far unkown
-            _LOGGER.warning(
-                f"unrecognized effect response with length {len(buf)}: {buf}"
-            )
 
-        return effect, effect_speed
+        colour_xy = tlv.get(TLVTag.COLOUR_XY)
+        if colour_xy != self._colour_xy:
+            state_difference[TLVTag.COLOUR_XY.name] = (
+                self._colour_xy,
+                colour_xy,
+            )
+            if write_state:
+                self._supports_colour_xy = True
+                self._colour_xy = colour_xy
+
+        effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+        if effect_type != self._effect:
+            state_difference[TLVTag.EFFECT_TYPE.name] = (
+                self._effect,
+                effect_type,
+            )
+            if write_state:
+                self._effect = effect_type
+
+        effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+        if effect_speed != self._effect_speed:
+            state_difference[TLVTag.EFFECT_SPEED.name] = (
+                self._effect_speed,
+                effect_speed,
+            )
+            if write_state:
+                self._effect_speed = effect_speed
+
+        return effect_type, effect_speed
 
     async def set_light_name(self, name: str):
         """Sets the name of the light. Not tested, use at own risk."""
@@ -1265,32 +1250,18 @@ class HueBleLight(object):
             await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.ONOFF.value)
-            + bytes([1 if on else 0])
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(power=on, transition=transition_ms)
 
-    async def set_brightness(
-        self, brightness: int, transition_ms: int | None = None
-    ):
+    async def set_brightness(self, brightness: int, transition_ms: int | None = None):
         """Sets the brightness from an integer between 0 and 255"""
         brightness = max(min(brightness, 254), 1)
         if transition_ms is None:
             await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.BRIGHTNESS.value)
-            + bytes([brightness])
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(brightness=brightness, transition=transition_ms)
 
-    async def set_colour_temp(
-        self, colour_temp: int, transition_ms: int | None = None
-    ):
+    async def set_colour_temp(self, colour_temp: int, transition_ms: int | None = None):
         """Sets the temperature from an int between 153 and 500.
         Uses mireds."""
         temp = max(min(int(colour_temp), 500), 153)
@@ -1299,28 +1270,98 @@ class HueBleLight(object):
             await self._write_gatt(UUID_TEMPERATURE, data)
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.TEMPERATURE.value)
-            + data
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(colour=colour_temp, transition=transition_ms)
 
-    async def set_colour_xy(
-        self, x: float, y: float, transition_ms: int | None = None
-    ):
+    async def set_colour_xy(self, x: float, y: float, transition_ms: int | None = None):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
         data = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
         if transition_ms is None:
             await self._write_gatt(UUID_XY_COLOUR, data)
             return
 
-        buf = (
-            bytes.fromhex(EffectCommands.COLOURXY.value)
-            + data
-            + _transition_tlv(transition_ms)
-        )
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(colour=(x, y), transition=transition_ms)
+
+    async def set_effect(
+        self,
+        power: bool | None = None,
+        brightness: int | None = None,
+        colour: int | tuple[float, float] | None = None,
+        effect: EffectType | None = None,
+        effect_speed: int | None = None,
+        transition: int | None = None,
+    ):
+        """
+        Set the state of the light using the effects API.
+
+        .. note::
+            This API can be used to send non-effect commands to
+            the light (e.g on-off, brightness, etc).
+
+        .. note::
+           This API may not be supported by all lights.
+
+        :param power: Optionally set the power state of the light.
+        :param brightness: Optionally set the brightness of the light (0-255 excl 0 & 255).
+        :param colour: Optionally set the colour of the light.
+        :param effect: Optionally set the effect of the light.
+        :param effect_speed: Optionally set the effect speed (0-255 excl 255).
+        :param transition: Optionally set the transition speed in milliseconds.
+
+        :raises ValueError: If an invalid/out of range argument was provided.
+        """
+        command_args = {}
+
+        if power is not None:
+            command_args[TLVTag.ON_OFF] = power
+
+        if brightness is not None:
+            if 0 >= brightness >= 255:
+                raise ValueError(
+                    f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)"
+                )
+            command_args[TLVTag.BRIGHTNESS] = brightness
+
+        if colour is not None and type(colour) is int:
+            if 0 > colour > 1000:
+                raise ValueError(
+                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)"
+                )
+            command_args[TLVTag.COLOUR_TEMP] = colour
+        elif colour is not None and type(colour) is tuple:
+            x, y = colour
+            if 0.0 >= x >= 1.0:
+                raise ValueError(
+                    f"X was '{x}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                )
+            if 0.0 >= y >= 1.0:
+                raise ValueError(
+                    f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                )
+            command_args[TLVTag.COLOUR_XY] = (x, y)
+        elif colour is not None:
+            raise ValueError(f"Expected int or tuple for colour but got '{colour}'!")
+
+        if effect is not None:
+            command_args[TLVTag.EFFECT_TYPE] = effect
+
+        if effect_speed is not None:
+            if 0 > effect_speed >= 255:
+                raise ValueError(
+                    f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)"
+                )
+            command_args[TLVTag.EFFECT_SPEED] = effect_speed
+
+        if transition is not None:
+            if 0 > transition >= 255:
+                raise ValueError(
+                    f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)"
+                )
+            command_args[TLVTag.TRANSITION] = transition
+
+        _LOGGER.debug(f"Building packet with arguments: {command_args}")
+        packet = TLV_EFFECT.build(command_args)
+        _LOGGER.debug(f"Built packet bytes: {packet}")
+        await self._write_gatt(UUID_EFFECTS, packet)
 
     async def set_colour_effect(
         self,
@@ -1340,36 +1381,14 @@ class HueBleLight(object):
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
-        if effect is not EffectType.NONE:
-            buf = pack(
-                "<2sB2sB2sHH2sB2sB",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLOURXY.value),
-                int(x * 0xFFFF),
-                int(y * 0xFFFF),
-                bytes.fromhex(EffectCommands.EFFECT.value),
-                max(min(effect.value, 254), 1),
-                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 255), 0),
-            )
-        else:
-            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
-            buf = pack(
-                "<2sB2sB2sHH",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.COLOURXY.value),
-                int(x * 0xFFFF),
-                int(y * 0xFFFF),
-            )
-        if transition_ms is not None:
-            buf += _transition_tlv(transition_ms)
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(
+            power=True,
+            brightness=brightness,
+            colour=(x, y),
+            effect=effect,
+            effect_speed=effect_speed,
+            transition=transition_ms,
+        )
 
     async def set_temperature_effect(
         self,
@@ -1382,41 +1401,20 @@ class HueBleLight(object):
         """
         Sets colour temperature, brightness, effect and effect speed.
 
-        :param colour_temp: colour temperature between 153 and 500
+        :param colour_temp: colour temperature between 0 and 1000
         :param brightness: brightness as an integer between 0 and 255
         :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
         :param effect_speed: speed of the effect between 0 and 255
         """
-        temperature = max(min(int(colour_temp), 500), 153)
 
-        if effect is not EffectType.NONE:
-            buf = pack(
-                "<2sB2sB2sH2sB2sB",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.TEMPERATURE.value),
-                temperature,
-                bytes.fromhex(EffectCommands.EFFECT.value),
-                max(min(effect.value, 254), 1),
-                bytes.fromhex(EffectCommands.EFFECT_SPEED.value),
-                max(min(effect_speed, 255), 0),
-            )
-        else:
-            # if no effect is selected we can just operate in colourxy mode and ommit the effect data in the transfer
-            buf = pack(
-                "<2sB2sB2sH",
-                bytes.fromhex(EffectCommands.ONOFF.value),
-                0x1,
-                bytes.fromhex(EffectCommands.BRIGHTNESS.value),
-                max(min(brightness, 254), 1),
-                bytes.fromhex(EffectCommands.TEMPERATURE.value),
-                temperature,
-            )
-        if transition_ms is not None:
-            buf += _transition_tlv(transition_ms)
-        await self._write_gatt(UUID_EFFECTS, buf)
+        await self.set_effect(
+            power=True,
+            brightness=brightness,
+            colour=colour_temp,
+            effect=effect,
+            effect_speed=effect_speed,
+            transition=transition_ms,
+        )
 
     @property
     def connected(self) -> bool:
@@ -1605,46 +1603,67 @@ class HueBleLight(object):
         # Else the light supports colour temperature and XY colour
         # The light is in colour temperature mode when the XY colour
         # is (0.0, 0.0) or (1.0, 1.0)
-        else:
-            return self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0)
+        elif self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0):
+            return True
+
+        # If we do not know what the XY colour is but do know what the colour temp is
+        elif self._colour_xy is None and self._colour_temp is not None:
+            return True
+
+        # If we do not know the colour temp but we do know the xy colour
+        elif self._colour_xy is not None and self._colour_temp is None:
+            return False
+
+        # Otherwise we do not know
+        return None
 
     @property
-    def effect(self) -> tuple[EffectType, int] | None:
+    def effect(self) -> tuple[EffectType | None, int | None] | None:
         """Effect as tuple of EffectType enum and effect speed.
         Returns None if the feature is not supported by the light.
         """
         if self.supports_effects:
             return (self._effect, self._effect_speed)
         else:
-            None
+            return None
 
     @property
-    def supports_on_off(self) -> bool:
+    def supports_on_off(self) -> bool | None:
         """Does the light support turning on and off.
         Yes I know it's silly but its for forwards compatibility
         in case a bluetooth sensor is ever released.
+
+        Returns None if support status is unknown.
         """
-        return self._power_on is not None
+        return self._supports_on_off
 
     @property
-    def supports_brightness(self) -> bool:
-        """Does the light support brightness control."""
-        return self._brightness is not None
+    def supports_brightness(self) -> bool | None:
+        """Does the light support brightness control.
+
+        Returns None if support status is unknown."""
+        return self._supports_brightness
 
     @property
-    def supports_colour_temp(self) -> bool:
-        """Does the light support colour temperature control."""
-        return self._colour_temp is not None
+    def supports_colour_temp(self) -> bool | None:
+        """Does the light support colour temperature control.
+
+        Returns None if support status is unknown."""
+        return self._supports_colour_temp
 
     @property
-    def supports_colour_xy(self) -> bool:
-        """Does the light support XY (RGB) colour control."""
-        return self._colour_xy is not None
+    def supports_colour_xy(self) -> bool | None:
+        """Does the light support XY (RGB) colour control.
+
+        Returns None if support status is unknown."""
+        return self._supports_colour_xy
 
     @property
-    def supports_effects(self) -> bool:
-        """Does the light support effect control."""
-        return self._effect is not None
+    def supports_effects(self) -> bool | None:
+        """Does the light support effect control.
+
+        Returns None if support status is unknown."""
+        return self._supports_effects
 
 
 async def discover_lights(

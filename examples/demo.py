@@ -8,7 +8,6 @@ import sys
 from aioconsole import ainput
 from HueBLE import HueBleLight, discover_lights, EffectType
 
-
 # Ask if debug log is wanted
 while True:
 
@@ -126,11 +125,13 @@ async def main():
                         effect_speed = int(await ainput())
                         print("Enter brightness (0 - 255)")
                         brightness = int(await ainput())
-                        await light.set_colour_effect(x, y, brightness, EffectType(effect_id), effect_speed)
+                        await light.set_colour_effect(
+                            x, y, brightness, EffectType(effect_id), effect_speed
+                        )
                     # Set Temperature Effect
                     case 6:
                         print("Enter colour temp (153-500)")
-                        temperature = float(await ainput())
+                        temperature = int(await ainput())
                         print("Possible Effects:")
                         for effect in EffectType:
                             print(f"({effect.name}: {effect.value})")
@@ -140,7 +141,9 @@ async def main():
                         effect_speed = int(await ainput())
                         print("Enter brightness (0 - 255)")
                         brightness = int(await ainput())
-                        await light.set_temperature_effect(temperature, brightness, EffectType(effect_id), effect_speed)
+                        await light.set_temperature_effect(
+                            temperature, brightness, EffectType(effect_id), effect_speed
+                        )
                     # Print all light metadata
                     case 7:
                         # Poll all values from the light
