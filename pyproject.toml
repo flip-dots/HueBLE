@@ -36,3 +36,6 @@ Documentation = "https://hueble.readthedocs.io/en/latest/"
 Repository = "https://github.com/flip-dots/HueBLE"
 Issues = "https://github.com/flip-dots/HueBLE/issues"
 Changelog = "https://hueble.readthedocs.io/en/latest/history.html"
+
+[tool.ruff.lint]
+ignore = ["N999"]
