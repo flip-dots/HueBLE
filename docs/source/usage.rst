@@ -235,6 +235,7 @@ The following methods can be used to change the current state of the light.
 - :py:meth:`.set_brightness`
 - :py:meth:`.set_colour_temp`
 - :py:meth:`.set_colour_xy`
+- :py:meth:`.set_effect`
 - :py:meth:`.set_colour_effect`
 - :py:meth:`.set_temperature_effect`
 
