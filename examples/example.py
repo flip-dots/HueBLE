@@ -1,5 +1,7 @@
 import asyncio
+
 from bleak import BleakScanner
+
 import HueBLE
 
 
@@ -27,6 +29,7 @@ async def main():
 
     # Turn the light back on again
     await light.set_power(True)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
