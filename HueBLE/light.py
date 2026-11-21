@@ -1,4 +1,7 @@
-"""HueBLE module.
+# Copyright (c) 2026 Harvey Lelliott
+# SPDX-License-Identifier: MIT
+"""
+HueBLE light module.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 
@@ -50,12 +53,15 @@ from HueBLE.const import (
 from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
 from HueBLE.exceptions import (
     CallbackError,
+    ConnectionError,  # noqa: A004
     InitialConnectionError,
     NotConnectedError,
     PairingError,
-    ReadWriteError,
-    ServicesError,
-    TimeoutError,
+    ReadError,
+    ServiceDiscoveryError,
+    ServiceSubscriptionError,
+    TimeoutError,  # noqa: A004
+    WriteError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,13 +70,13 @@ _LOGGER = logging.getLogger(__name__)
 class HueBleLight:
     """Philips Hue BLE Light object."""
 
-    def __init__(self, ble_device: BLEDevice):
+    def __init__(self, ble_device: BLEDevice) -> None:
         """Initialise light object. Does not connect automatically."""
 
         _LOGGER.debug(
             f"""Initializing Hue light "{ble_device.name}" with"""
             f""" address "{ble_device.address}" and details"""
-            f""" "{ble_device.details}"."""
+            f""" "{ble_device.details}".""",
         )
 
         # Internals
@@ -111,33 +117,60 @@ class HueBleLight:
         self._supports_effects: bool | None = None
 
     def add_callback_on_state_changed(self, function: Callable[[], None]) -> None:
-        """Register a callback to be run on light state changes. Triggers
+        """
+        Add state change callback.
+
+        Register a callback to be run on device state changes. Triggers
         include changes to power, brightness, temp, colour, and connection
-        status. These triggers are not dependant on the request being made
-        by this program. (e.g If a ZigBee switch or Hue app commands the
-        light off the callback will still be run)
+        status.
+
+        .. note::
+            Triggers are not dependant on the request being made
+            by this program. (e.g If a ZigBee switch or Hue app commands the
+            light off the callback will still be run).
+
+        .. warning::
+            If a callback raises an exception this will be raised as a
+            :exc:`~HueBLE.CallbackError` and will result in all following
+            callbacks not being executed.
+
+        :param function: Callable function to execute on state change. Not async.
         """
         self._state_changed_callbacks.append(function)
 
     def remove_callback(self, function: Callable[[], None]) -> None:
-        """Remove a registered state change callback.
-        Raises ValueError if does not exist.
+        """
+        Remove a state change callback.
+
+        Remove a registered state change callback.
+
+        :param function: Callable function to remove from callbacks list.
+        :raises ValueError: If the callable function does not exist in the callbacks.
         """
         self._state_changed_callbacks.remove(function)
 
     def _run_state_changed_callbacks(self) -> None:
-        """Executes all registered callbacks for a state change. Exceptions are caught and re-raised."""
+        """
+        Execute registered state chance callbacks.
+
+        This executes all registered callbacks for a state change.
+        Exceptions are caught and re-raised as a :exc:`~HueBLE.CallbackError`.
+        """
         for function in self._state_changed_callbacks:
             try:
                 function()
             except Exception as e:
-                raise CallbackError(
-                    f"""Exception executing state changed callback on "{self.name}". Function: "{function.__name__}". E: "{e}"."""
-                ) from e
+                raise CallbackError(self._ble_device, function, e) from e
 
     def _disconnect_callback(self, client: BleakClient) -> None:
-        """Private method. Updates program state and will attempt reconnect
-        if the disconnect was unexpected.
+        """
+        Handle unexpected disconnect events.
+
+        This is executed by the :class:`~bleak.BleakClient` when
+        connection is lost to the device. This attempts to automatically
+        reconnect to the device if we did not expect the disconnect.
+
+        :param client: The BleakClient that issued the disconnect.
         """
         # If the disconnect did not come from the class client then either
         # its null, in which case disconnect() was run and connect() was not
@@ -149,7 +182,7 @@ class HueBleLight:
             _LOGGER.debug(
                 f"""The disconnect came from an unexpected client. The class"""
                 f""" client is "{self._client}", but the callback"""
-                f""" gave us "{client}". Ignoring disconnect event."""
+                f""" gave us "{client}". Ignoring disconnect event.""",
             )
             return
 
@@ -169,18 +202,25 @@ class HueBleLight:
         ):
 
             # Try and reconnect
-            asyncio.create_task(self.reconnect())
+            # TODO (flip-dots): Replace with more reliable implementation from SolixBLE  # noqa: FIX002, TD003
+            self._reconnect_task = asyncio.create_task(self.reconnect())
 
         else:
             _LOGGER.warning(
                 f"""Maximum re-connect attempts to "{client}". exceeded."""
-                """ Will NOT attempt reconnect."""
+                """ Will NOT attempt reconnect.""",
             )
 
-    async def reconnect(self, reconnect_delay: int = DEFAULT_RECONNECT_DELAY):
-        """Disconnects then reconnects to the device.
-        Simply calls disconnect then calls connect.
+    async def reconnect(self, reconnect_delay: int = DEFAULT_RECONNECT_DELAY) -> None:
         """
+        Disconnect then reconnect to device.
+
+        This function is called when a disconnect callback is raised by the
+        :class:`~bleak.BleakClient` and will attempt to reconnect to the device.
+
+        :param reconnect_delay: Delay between calling :func:`~HueBleLight.disconnect` and :func:`~HueBleLight.connect`.
+        :raises :exc:`~HueBLE.ConnectionError`: if the connect fails.
+        """  # noqa: E501
 
         _LOGGER.debug(f"""Disconnecting then reconnecting to "{self.address}".""")
 
@@ -193,183 +233,235 @@ class HueBleLight:
         await asyncio.sleep(reconnect_delay)
         await self.connect()
 
-    async def _subscribe_to_light(self) -> None:
-        """Subscribes to the state of the light.
-        Automatically called on connect.
-        :raises Exception: If unable to subscribe to supported features.
+    async def _subscribe_to_light_legacy(self, client: BleakClient) -> None:
         """
+        Subscribe to individual supported attributes of the device.
 
-        if self._client is None:
-            raise NotConnectedError(
-                "Unable to subscribe to services as we are not connected to the device!"
-            )
+        This is the legacy option which subscribes to updated from individual
+        attributes (e.g on/off, brightness, etc). This is not the preferred
+        option as the effects API will provide us with all this information
+        in one call.
 
-        # If Effects is supported
-        if self.supports_effects:
-
-            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
-
-                _LOGGER.debug(f"Effect bytes: {data.hex()}")
-                tlv = TLV_EFFECT.parse(data)
-                _LOGGER.debug(f"Parsed effect TLV: {tlv}")
-
-                state_difference: dict[str, tuple[Any, Any]] = {}
-
-                power_on = tlv.get(TLVTag.ON_OFF)
-                if power_on != self._power_on:
-                    state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
-                    self._supports_on_off = True
-                    self._power_on = power_on
-
-                brightness = tlv.get(TLVTag.BRIGHTNESS)
-                if brightness != self._brightness:
-                    state_difference[TLVTag.BRIGHTNESS.name] = (
-                        self._brightness,
-                        brightness,
-                    )
-                    self._supports_brightness = True
-                    self._brightness = brightness
-
-                colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
-                if colour_temp != self._colour_temp:
-                    state_difference[TLVTag.COLOUR_TEMP.name] = (
-                        self._colour_temp,
-                        colour_temp,
-                    )
-                    self._supports_colour_temp = True
-                    self._colour_temp = colour_temp
-
-                colour_xy = tlv.get(TLVTag.COLOUR_XY)
-                if colour_xy != self._colour_xy:
-                    state_difference[TLVTag.COLOUR_XY.name] = (
-                        self._colour_xy,
-                        colour_xy,
-                    )
-                    self._supports_colour_xy = True
-                    self._colour_xy = colour_xy
-
-                effect_type = tlv.get(TLVTag.EFFECT_TYPE)
-                if effect_type != self._effect:
-                    state_difference[TLVTag.EFFECT_TYPE.name] = (
-                        self._effect,
-                        effect_type,
-                    )
-                    self._supports_effects = True
-                    self._effect = effect_type
-
-                effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
-                if effect_speed != self._effect_speed:
-                    state_difference[TLVTag.EFFECT_SPEED.name] = (
-                        self._effect_speed,
-                        effect_speed,
-                    )
-                    self._supports_effects = True
-                    self._effect_speed = effect_speed
-
-                _LOGGER.debug(
-                    f"""Light "{self.name}" has informed us of a new"""
-                    f""" Effect state of ({self.effect}) with diff ({state_difference})"""
-                )
-                _LOGGER.debug(f"Light state: {self}")
-
-                if state_difference:
-                    self._run_state_changed_callbacks()
-
-            _LOGGER.debug("Subscribing to Effects UUID")
-            await self._client.start_notify(UUID_EFFECTS, report)
-
-            # If we can use the effects API we do not need the old one
-            return
+        :raises :exc:`~bleak.BleakError`: If unable to subscribe to attribute updates.
+        """
 
         # If turning off an on is supported :|
         if self.supports_on_off:
 
-            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
+            def report(_: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._power_on = bool(data[0])
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
-                    f""" power state of ({self.power_state})"""
+                    f""" power state of ({self.power_state})""",
                 )
                 _LOGGER.debug(f"Light state: {self}")
                 self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to power state UUID")
-            await self._client.start_notify(UUID_POWER, report)
+            await client.start_notify(UUID_POWER, report)
 
         # If brightness is supported
         if self.supports_brightness:
 
-            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
+            def report(_: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._brightness = data[0]
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
-                    f""" brightness state of ({self.brightness})"""
+                    f""" brightness state of ({self.brightness})""",
                 )
                 _LOGGER.debug(f"Light state: {self}")
                 self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to brightness UUID")
-            await self._client.start_notify(UUID_BRIGHTNESS, report)
+            await client.start_notify(UUID_BRIGHTNESS, report)
 
         # If colour temperature is supported
         if self.supports_colour_temp:
 
-            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
+            def report(_: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._colour_temp = int.from_bytes(data, "little")
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
-                    f""" colour temp state of ({self.colour_temp})"""
+                    f""" colour temp state of ({self.colour_temp})""",
                 )
                 _LOGGER.debug(f"Light state: {self}")
                 self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to colour temperature UUID")
-            await self._client.start_notify(UUID_TEMPERATURE, report)
+            await client.start_notify(UUID_TEMPERATURE, report)
 
         # If XY colour is supported
         if self.supports_colour_xy:
 
-            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
+            def report(_: BleakGATTCharacteristic, data: bytearray) -> None:
                 x, y = unpack("<HH", data)
                 self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
-                    f""" XY colour state of ({self.colour_xy})"""
+                    f""" XY colour state of ({self.colour_xy})""",
                 )
                 _LOGGER.debug(f"Light state: {self}")
                 self._run_state_changed_callbacks()
 
             _LOGGER.debug("Subscribing to XY colour UUID")
-            await self._client.start_notify(UUID_XY_COLOUR, report)
+            await client.start_notify(UUID_XY_COLOUR, report)
 
-    async def connect(
+    async def _subscribe_to_light_modern(self, client: BleakClient) -> None:
+        """
+        Subscribe to the effects API of the device.
+
+        This is the preferred way to receive state updates from the device
+        as the effects API reports on all state changes.
+
+        :raises :exc:`~bleak.BleakError`: If unable to subscribe to attribute updates.
+        """
+
+        def report(_: BleakGATTCharacteristic, data: bytearray) -> None:
+
+            _LOGGER.debug(f"Effect bytes: {data.hex()}")
+            tlv = TLV_EFFECT.parse(data)
+            _LOGGER.debug(f"Parsed effect TLV: {tlv}")
+
+            state_difference: dict[str, tuple[Any, Any]] = {}
+
+            power_on = tlv.get(TLVTag.ON_OFF)
+            if power_on != self._power_on:
+                state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+                self._supports_on_off = True
+                self._power_on = power_on
+
+            brightness = tlv.get(TLVTag.BRIGHTNESS)
+            if brightness != self._brightness:
+                state_difference[TLVTag.BRIGHTNESS.name] = (
+                    self._brightness,
+                    brightness,
+                )
+                self._supports_brightness = True
+                self._brightness = brightness
+
+            colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+            if colour_temp != self._colour_temp:
+                state_difference[TLVTag.COLOUR_TEMP.name] = (
+                    self._colour_temp,
+                    colour_temp,
+                )
+                self._supports_colour_temp = True
+                self._colour_temp = colour_temp
+
+            colour_xy = tlv.get(TLVTag.COLOUR_XY)
+            if colour_xy != self._colour_xy:
+                state_difference[TLVTag.COLOUR_XY.name] = (
+                    self._colour_xy,
+                    colour_xy,
+                )
+                self._supports_colour_xy = True
+                self._colour_xy = colour_xy
+
+            effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+            if effect_type != self._effect:
+                state_difference[TLVTag.EFFECT_TYPE.name] = (
+                    self._effect,
+                    effect_type,
+                )
+                self._supports_effects = True
+                self._effect = effect_type
+
+            effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+            if effect_speed != self._effect_speed:
+                state_difference[TLVTag.EFFECT_SPEED.name] = (
+                    self._effect_speed,
+                    effect_speed,
+                )
+                self._supports_effects = True
+                self._effect_speed = effect_speed
+
+            _LOGGER.debug(
+                f"""Light "{self.name}" has informed us of a new"""
+                f""" Effect state of ({self.effect}) with diff ({state_difference})""",
+            )
+            _LOGGER.debug(f"Light state: {self}")
+
+            if state_difference:
+                self._run_state_changed_callbacks()
+
+        _LOGGER.debug("Subscribing to Effects UUID")
+        await client.start_notify(UUID_EFFECTS, report)
+
+    async def _subscribe_to_light(self) -> None:
+        """
+        Subscribe to supported attributes of the device.
+
+        This is called on :func:`~HueBleLight.connect` and subscribes to state updates
+        of supported attributes of the device (e.g on/off brightness, etc). Service
+        discovery must be performed before this is called using
+        :func:`~HueBleLight._determine_services`.
+
+        :raises :exc:`~HueBLE.NotConnectedError`: If not connected to the device.
+        :raises :exc:`~bleak.BleakError`: If unable to subscribe to attribute updates.
+        """
+
+        if self._client is None:
+            raise NotConnectedError
+
+        # Use effects API for state updates if available
+        if self.supports_effects:
+            await self._subscribe_to_light_modern(self._client)
+
+        # Else use legacy individual attributes
+        else:
+            await self._subscribe_to_light_legacy(self._client)
+
+    async def connect(  # noqa: C901
         self,
         max_attempts: int = DEFAULT_CONNECTION_ATTEMPTS_MAX,
         connection_timeout: int = DEFAULT_CONNECTION_TIMEOUT,
         wait_timeout: int = DEFAULT_CONNECTION_WAIT_TIMEOUT,
-        run_callbacks: bool = DEFAULT_ON_CONNECT_RUN_CALLBACKS,
+        run_callbacks: bool = DEFAULT_ON_CONNECT_RUN_CALLBACKS,  # noqa: FBT001
     ) -> None:
-        """Connects to the light using bluetooth. This can be manually called
-        but it will also be run automatically if the light is not
-        connected when the light is polled or set.
+        """
+        Establish connection to the device.
 
-        On connection it will attempt to pair to the light if not already
-        paired but this only seems to work on Linux, so you might need to
-        pair using your OS.
+        This function will establish a BLE connection to the device
+        and attempt to pair if necessary.
 
-        Connecting will NOT automatically cause all values to be polled
-        and put in the internal state.
+        .. note::
+            This is automatically called when a connection to the device is needed to
+            perform an action (e.g :exc:`~HueBLE.HueBleLight.set_power` will
+            automatically call connect if not already connected).
 
-        Connection timeout is the maximum time for a connection attempt
-        once a lock has been acquired.
+        .. warning::
+            Connecting to a light will not automatically populate values (e.g
+            :func:`~HueBLE.HueBleLight.brightness`,
+             :func:`~HueBLE.HueBleLight.manufacturer`, etc). Some values like
+             :func:`~HueBLE.HueBleLight.brightness` will be populated by state updates
+             from the device but others such as :func:`~HueBLE.HueBleLight.manufacturer`
+             must be polled, in this example using either
+             :func:`~HueBLE.HueBleLight.poll_manufacturer` or
+             :func:`~HueBLE.HueBleLight.poll_state`.
 
-        Wait timeout is the maximum amount of time that the method will
-        wait to acquire a lock to attempt to perform a connection.
+        .. note::
+            This function uses a lock to ensure that only one connection attempt may
+            performed at any one point.
 
-        Registered callbacks will be run if a connection is achieved
-        unless disabled.
+        .. warning::
+            Pairing is not supported on MacOS and must be done in the operating system
+            settings.
 
-        This function raises ConnectionError on failure.
+        .. note::
+            It is only possible for the program to determine if it is paired to a device
+            on Linux, on other platforms this information is not available and pairing
+            will be performed even if the device is already paired, but this has no
+            adverse affects (pairing if you are already paired always works even if
+            the light is no longer in a pairing state).
+
+
+        :param max_attempts: Maximum number of attempts before failing.
+        :param connection_timeout: Maximum time to successfully connect before retry.
+        :param wait_timeout: Maximum time to wait for a connection lock.
+        :param run_callbacks: If callbacks should be executed on success.
+
+        :raises :exc:`~HueBLE.ConnectionError`: on failure.
+        :raises :exc:`~HueBLE.CallbackError`: if any callback raises an exception.
         """
 
         # If we are already connected then do nothing
@@ -382,7 +474,7 @@ class HueBleLight:
         if self._connection_lock.locked():
             _LOGGER.debug(
                 f"""Connection already in progress to "{self.name}"."""
-                f""" Waiting for it to complete..."""
+                f""" Waiting for it to complete...""",
             )
 
         # Timeout if waiting too long
@@ -399,13 +491,13 @@ class HueBleLight:
                     if self.connected:
                         _LOGGER.debug(
                             f"""Now connected to "{self.name}" after waiting"""
-                            f""" for lock release"""
+                            f""" for lock release""",
                         )
-                        return True
+                        return
 
                     _LOGGER.debug(
                         f"""Connecting to "{self.name}" with address"""
-                        f""" "{self.address}"."""
+                        f""" "{self.address}".""",
                     )
 
                     # Increment attempts
@@ -426,18 +518,17 @@ class HueBleLight:
                                 )
                                 _LOGGER.debug(
                                     f"""Using client "{self._client}" with """
-                                    f"""backend "{self._client._backend}"."""
+                                    f"""backend "{self._client.backend_id}".""",
                                 )
 
                                 # If we failed to connect
                                 if not self._client.is_connected:
-                                    raise NotConnectedError(
-                                        f"""Not connected to "{self.name}" after establish_connection()."""
-                                    )
+                                    raise NotConnectedError  # noqa: TRY301
 
                             except Exception as e:
                                 raise InitialConnectionError(
-                                    f"""Failed to make an initial connection to the light "{self.name}". E: "{e}"."""
+                                    self._ble_device,
+                                    e,
                                 ) from e
 
                             # Attempt to pair if not paired
@@ -447,23 +538,22 @@ class HueBleLight:
                             # Determine what features the light supports
                             try:
                                 _LOGGER.debug(
-                                    "Determining services offered by the light..."
+                                    "Determining services offered by the light...",
                                 )
                                 await self._determine_services()
                             except Exception as e:
-                                raise ServicesError(
-                                    f"""Failed to determine what services the light "{self.name}" offers. E: "{e}"."""
-                                ) from e
+                                raise ServiceDiscoveryError(self._ble_device, e) from e
 
-                            # Subscribe to state updates from the features the light supports
+                            # Subscribe to updates from the features the device supports
                             try:
                                 _LOGGER.debug(
-                                    "Subscribing to services offered by the light..."
+                                    "Subscribing to services offered by the light...",
                                 )
                                 await self._subscribe_to_light()
                             except Exception as e:
-                                raise ServicesError(
-                                    f"""Failed to subscribe to services offered by the light "{self.name}". E: "{e}"."""
+                                raise ServiceSubscriptionError(
+                                    self._ble_device,
+                                    e,
                                 ) from e
 
                             # If the connection was successful, and we are paired,
@@ -475,37 +565,61 @@ class HueBleLight:
                             self._connection_attempts = 0
 
                             # If we have reached here that means connecting and
-                            # pairing was (probably) successful since we have now queried
-                            # values and subscribed to updates
+                            # pairing was (probably) successful since we have now
+                            # subscribed to updates
                             _LOGGER.debug(
                                 f"""Successfully connected and authenticated"""
-                                f""" to "{self.name}"."""
+                                f""" to "{self.name}".""",
                             )
 
-                            # We then exit the timeout context, run callbacks if required,
-                            # since we have achieved a connection, a state change, then
-                            # return
+                            # We then exit the timeout context, run callbacks if
+                            # required, since we have achieved a connection then return
 
                     except builtins.TimeoutError as e:
-                        raise TimeoutError(
-                            f"""Timed out attempting to connect to "{self.name}"."""
+                        raise TimeoutError(  # noqa: TRY003
+                            f"""Timed out attempting to connect to "{self.name}".""",  # noqa: EM102
                         ) from e
 
         except builtins.TimeoutError as e:
-            raise TimeoutError(
-                f"""Timed out waiting for connection lock for "{self.name}"."""
+            raise TimeoutError(  # noqa: TRY003
+                f"""Timed out waiting for connection lock for "{self.name}".""",  # noqa: EM102
             ) from e
 
         except Exception as e:
             raise ConnectionError(
-                f"""Exception connecting to light "{self.name}". E: "{e}"."""
+                self._ble_device,
+                e,
             ) from e
 
         if run_callbacks:
             self._run_state_changed_callbacks()
 
-    async def pair(self):
-        """Pair to light if not paired and raise PairingError on failure."""
+        return
+
+    async def pair(self) -> None:
+        """
+        Pair to the device.
+
+        This function attempts to pair to the device if the pairing
+        status is not paired or unknown.
+
+        .. warning::
+            Pairing is not supported on MacOS and must be done in the operating system
+            settings. In this case the function will log a warning and return.
+
+        .. note::
+            It is only possible for the program to determine if it is paired to a device
+            on Linux, on other platforms this information is not available and pairing
+            will be performed even if the device is already paired, but this has no
+            adverse affects (pairing if you are already paired always works even if
+            the light is no longer in a pairing state).
+
+        :raises :exc:`~HueBLE.NotConnectedError`: If not connected.
+        :raises :exc:`~HueBLE.PairingError`: If pairing is unsuccessful.
+        """
+
+        if self._client is None or not self._client.is_connected:
+            raise NotConnectedError
 
         # If paired return
         if self.authenticated is True:
@@ -515,7 +629,7 @@ class HueBleLight:
         # If mac return as pairing is not supported on MacOS
         if platform.system() == "Darwin":
             _LOGGER.warning(
-                "Pairing is not supported on MacOS! You must pair manually!"
+                "Pairing is not supported on MacOS! You must pair manually!",
             )
             return
 
@@ -531,33 +645,48 @@ class HueBleLight:
                     await self._client.pair()
 
         except builtins.TimeoutError as e:
-            raise PairingError(
-                f"""Timed out attempting to pair to "{self.name}"."""
+            raise PairingError(  # noqa: TRY003
+                f"""Timed out attempting to pair to "{self.name}".""",  # noqa: EM102
             ) from e
 
         except BleakError as e:
-            raise PairingError(
-                f"""Error from Bluetooth backend when attempting to pair to "{self.name}". E: "{e}"."""
+            raise PairingError(  # noqa: TRY003
+                f"""Error from BLE backend pairing to "{self.name}". E: "{e}".""",  # noqa: EM102
             ) from e
 
-    async def _pair_bluez(self):
-        """Workaround for bluez authentication issues."""
-        from dbus_fast import BusType
-        from dbus_fast.aio import MessageBus
-        from dbus_fast.service import ServiceInterface, method
+        return
+
+    async def _pair_bluez(self) -> None:
+        """
+        Workaround for pairing on BlueZ Linux systems.
+
+        There is a bug in current BlueZ versions which prevents pairing
+        from working. This workaround gets around that by using some
+        trickery. `See #8 <https://github.com/flip-dots/HueBLE/pull/8>`_.
+
+        :raises :exc:`~HueBLE.NotConnectedError`: If not connected.
+        :raises Exception: There are a lot of ways this can go wrong.
+        """
+        from dbus_fast import BusType  # noqa: PLC0415
+        from dbus_fast.aio import MessageBus  # noqa: PLC0415
+        from dbus_fast.service import ServiceInterface, method  # noqa: PLC0415
+
+        if self._client is None or not self._client.is_connected:
+            raise NotConnectedError
 
         class BluezAgent(ServiceInterface):
             """Agent for automatically accepting pairing passkeys."""
 
-            def __init__(self):
+            def __init__(self) -> None:
+                """Init pairing agent."""
                 super().__init__("org.bluez.Agent1")
 
             @method()
-            def RequestConfirmation(self, device: "o", passkey: "u"):  # type: ignore  # noqa: F821
+            def RequestConfirmation(self, device: "o", passkey: "u") -> None:  # type: ignore  # noqa: F821, N802, PGH003
                 _LOGGER.debug(f"Auto confirming passkey {passkey} for {device}")
 
             @method()
-            def Cancel(self):
+            def Cancel(self) -> None:  # noqa: N802
                 _LOGGER.debug("Pairing cancelled by device")
 
         # Build agent
@@ -572,7 +701,7 @@ class HueBleLight:
         introspection = await bus.introspect("org.bluez", "/org/bluez")
         proxy_object = bus.get_proxy_object("org.bluez", "/org/bluez", introspection)
         agent_manager = proxy_object.get_interface("org.bluez.AgentManager1")
-        await agent_manager.call_register_agent(agent_path, "KeyboardDisplay")
+        await agent_manager.call_register_agent(agent_path, "KeyboardDisplay")  # type: ignore[attr-defined]
         _LOGGER.debug("Pairing agent ready!")
 
         async with asyncio.timeout(DEFAULT_PAIR_TIMEOUT):
@@ -583,24 +712,28 @@ class HueBleLight:
                 await self._client.pair()
             finally:
                 _LOGGER.debug("Stopping pairing agent...")
-                await agent_manager.call_unregister_agent(agent_path)
+                await agent_manager.call_unregister_agent(agent_path)  # type: ignore[attr-defined]
                 bus.unexport(agent_path, agent)
                 bus.disconnect()
 
     async def _determine_services(self) -> None:
-        """Determines what features the light supports.
-        The data may then be retrieved via the supports properties.
-        :raises BleakError: If unable to determine services offered.
+        """
+        Determine available features.
+
+        Determines what features the device supports. The data may then be
+        retrieved via the supports properties.
+
+        :raises :exc:`~HueBLE.NotConnectedError`: If not connected.
+        :raises :exc:`~bleak.BleakError`: If unable to determine services offered.
         """
 
-        # If debug mode enabled print all services offered by light as well as the readable values
+        # If debug mode enabled print all services offered by light as well as the
+        # readable values
         if _LOGGER.isEnabledFor(logging.DEBUG):
             await self.print_services()
 
         if self._client is None:
-            raise NotConnectedError(
-                "Unable to determine services as we are not connected to the device!"
-            )
+            raise NotConnectedError
 
         self._supports_metadata_manufacturer = (
             self._client.services.get_characteristic(UUID_MANUFACTURER) is not None
@@ -634,8 +767,11 @@ class HueBleLight:
         )
 
     async def disconnect(self) -> None:
-        """Disconnects the program from the light.
-        Callbacks are not triggered.
+        """
+        Disconnect from device.
+
+        Disconnects the program from the device, does not
+        attempt reconnection, and does not run callbacks.
         """
 
         self._expect_disconnect = True
@@ -646,35 +782,47 @@ class HueBleLight:
             await self._client.disconnect()
         except TimeoutError:
             _LOGGER.exception(
-                f"""Timeout attempting to disconnect from "{self.name}"."""
+                f"""Timeout attempting to disconnect from "{self.name}".""",
             )
         except BleakError:
             _LOGGER.exception(
-                f"""BleakError attempting to disconnect from "{self.name}"."""
+                f"""BleakError attempting to disconnect from "{self.name}".""",
             )
 
         # Throw away the client
         self._client = None
 
-    async def poll_state(
+    async def poll_state(  # noqa: C901, PLR0912, PLR0915
         self,
-        timeout=DEFAULT_POLL_STATE_TIMEOUT,
-        run_callbacks_if_changed=DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED,
+        timeout: int = DEFAULT_POLL_STATE_TIMEOUT,  # noqa: ASYNC109
+        run_callbacks_if_changed: bool = DEFAULT_POLL_STATE_CALLBACKS_IF_CHANGED,  # noqa: FBT001
     ) -> bool:
-        """Updates the local state with values from the light using polling.
-        This will only populate the fields that the light supports (i.e it
-        should not error out if your light does not support colour).
-        A lock is used to only allow one state update at a time with
-        a timeout. Any callbacks are run outside of the state lock but
-        within the timeout lock. asyncio.TimeoutError raised on timeout.
-        Returns true/false if the state changed. Passes through any raised exceptions.
+        """
+        Poll all supported attributes of the device.
+
+        Updates the local state with values from the light using polling.
+
+        .. note::
+            This will only populate the fields that the light supports (i.e it
+            should not error out if your light does not support colour).
+            A lock is used to only allow one state update at a time with
+            a timeout. Any callbacks are run outside of the state lock but
+            within the timeout lock.
+
+        If unable to determine services offered.
+
+        :param timeout: Maximum time to allow for polling all values.
+        :param run_callbacks_if_changed: Run callbacks if the state changed.
+        :returns: Has the state of the device changed.
+        :raises :exc:`~HueBLE.ReadWriteError`: If reading values from the device failed.
+        :raises :exc:`~asyncio.TimeoutError`: If polling timed out.
         """
         state_changed = False
 
         if self._state_update_lock.locked():
             _LOGGER.debug(
                 f"""Waiting for state update lock of "{self.name}" to be"""
-                f""" released."""
+                f""" released.""",
             )
 
         # Timeout if waiting too long
@@ -686,7 +834,7 @@ class HueBleLight:
 
                 if self._supports_metadata_manufacturer:
                     if self.manufacturer != await self.poll_manufacturer(
-                        write_state=True
+                        write_state=True,
                     ):
                         state_changed = True
                 else:
@@ -706,7 +854,7 @@ class HueBleLight:
 
                 if self._supports_metadata_zigbee_address:
                     if self.zigbee_address != await self.poll_zigbee_address(
-                        write_state=True
+                        write_state=True,
                     ):
                         state_changed = True
                 else:
@@ -729,7 +877,7 @@ class HueBleLight:
 
                     if self.supports_on_off:
                         if self.power_state != await self.poll_power_state(
-                            write_state=True
+                            write_state=True,
                         ):
                             state_changed = True
                     else:
@@ -737,7 +885,7 @@ class HueBleLight:
 
                     if self.supports_brightness:
                         if self.brightness != await self.poll_brightness(
-                            write_state=True
+                            write_state=True,
                         ):
                             state_changed = True
                     else:
@@ -745,7 +893,7 @@ class HueBleLight:
 
                     if self.supports_colour_temp:
                         if self.colour_temp != await self.poll_colour_temp(
-                            write_state=True
+                            write_state=True,
                         ):
                             state_changed = True
                     else:
@@ -753,7 +901,7 @@ class HueBleLight:
 
                     if self.supports_colour_xy:
                         if self.colour_xy != await self.poll_colour_xy(
-                            write_state=True
+                            write_state=True,
                         ):
                             state_changed = True
                     else:
@@ -770,53 +918,65 @@ class HueBleLight:
 
     async def _read_gatt(
         self,
-        property: str,
+        address: str,
         attempt_timeout: int = DEFAULT_READ_GATT_TIMEOUT,
         max_attempts: int = DEFAULT_READ_GATT_MAX_ATTEMPTS,
     ) -> bytearray:
-        """Reads a GATT attribute from the light.
-        If there is an error an exception will be thrown.
         """
-        _LOGGER.debug(f"""Reading bytes at "{property}" from "{self.name}"...""")
+        Read GATT characteristic from device.
+
+        Return the value of the address with automatic connection
+        and retry on failure.
+
+        :param address: GATT characteristic to read.
+        :param attempt_timeout: Maximum amount of time for a read attempt.
+        :param max_attempts: Maximum number of attempts before giving up.
+        :returns: Data at address.
+        :raises :exc:`~HueBLE.ReadError`: If all attempts have failed.
+        """
+        _LOGGER.debug(f"""Reading bytes at '{address}' from '{self.name}'...""")
         last_error = None
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
                     if not self.connected:
                         _LOGGER.debug(
-                            "Not connected to light. Executing connect before proceeding with read..."
+                            "Not connected. Executing connect before proceeding...",
                         )
                         await self.connect()
                     if self._client is None:
-                        raise NotConnectedError(
-                            "Unable to read value from device as we are not connected!"
-                        )
-                    return await self._client.read_gatt_char(property)
+                        raise NotConnectedError  # noqa: TRY301
+                    return await self._client.read_gatt_char(address)
 
             except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
-                    f"""Failed to read value from "{self.name}" on attempt"""
-                    f""" {i}/{max_attempts}. Error message "{e}"."""
+                    f"""Failed to read value from '{self.name}' on attempt"""
+                    f""" {i}/{max_attempts}. Error message '{e}'.""",
                 )
                 last_error = e
-        raise ReadWriteError(
-            f"""Unable to read "{property}" from "{self.name}" after"""
-            f""" {max_attempts} attempts"""
-        ) from last_error
+        raise ReadError(self._ble_device, address, i, last_error) from last_error
 
     async def _write_gatt(
         self,
-        property: str,
+        address: str,
         data: bytes,
         attempt_timeout: int = DEFAULT_WRITE_GATT_TIMEOUT,
         max_attempts: int = DEFAULT_WRITE_GATT_MAX_ATTEMPTS,
     ) -> None:
-        """Writes a GATT attribute to a light.
-        Will attempt to connect if not already connected.
-        Will throw an exception on error.
+        """
+        Write GATT characteristic to device.
+
+        Write the data to the address with automatic connection
+        and retry on failure.
+
+        :param address: GATT characteristic to write.
+        :param data: Data to write to address.
+        :param attempt_timeout: Maximum amount of time for a read attempt.
+        :param max_attempts: Maximum number of attempts before giving up.
+        :raises :exc:`~HueBLE.WriteError`: If all attempts have failed.
         """
         _LOGGER.debug(
-            f"""Writing bytes "{data.hex()}" at "{property}" to "{self.name}"..."""
+            f"""Writing bytes "{data.hex()}" at "{address}" to "{self.name}"...""",
         )
         last_error = None
         for i in range(1, max_attempts + 1):
@@ -824,39 +984,36 @@ class HueBleLight:
                 async with asyncio.timeout(attempt_timeout):
                     if not self.connected:
                         _LOGGER.debug(
-                            "Not connected to light. Executing connect before proceeding with write..."
+                            "Not connected. Executing connect before proceeding",
                         )
                         await self.connect()
                     if self._client is None:
-                        raise NotConnectedError(
-                            "Unable to write value to device as we are not connected!"
-                        )
+                        raise NotConnectedError  # noqa: TRY301
                     return await self._client.write_gatt_char(
-                        property, data, response=True
+                        address,
+                        data,
+                        response=True,
                     )
 
             except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
                     f"""Failed to write value to "{self.name}" on attempt"""
-                    f""" {i}/{max_attempts}. Error message "{e}"."""
+                    f""" {i}/{max_attempts}. Error message "{e}".""",
                 )
                 last_error = e
-        raise ReadWriteError(
-            f"""Unable to write "{data.hex()}" at "{property}" to "{self.name}" after"""
-            f""" {max_attempts} attempts"""
-        ) from last_error
+        raise WriteError(self._ble_device, address, data, i, last_error) from last_error
 
     async def print_services(self) -> None:
         """
-        Prints all available GATT services in the debug log.
-        See: `original <https://github.com/hbldh/bleak/blob/develop/examples/service_explorer.py>`_
+        Print all available GATT services in the debug log.
 
-        :raises ConnectionError: If no connection/client has been established.
+        This prints all services advertised by the device in the debug log.
+        Based on: `<https://github.com/hbldh/bleak/blob/develop/examples/service_explorer.py>`_.
+
+        :raises :exc:`~HueBLE.NotConnectedError`: If not connected to device.
         """
         if self._client is None:
-            raise NotConnectedError(
-                "Unable to print services as we are not connected to the device!"
-            )
+            raise NotConnectedError
 
         _LOGGER.debug("==== START SERVICES ====")
         for service in self._client.services:
@@ -882,35 +1039,68 @@ class HueBleLight:
                 for descriptor in char.descriptors:
                     try:
                         value = await self._client.read_gatt_descriptor(
-                            descriptor.handle
+                            descriptor.handle,
                         )
                         _LOGGER.debug(
-                            "    [Descriptor] %s, Value: %r", descriptor, value
+                            "    [Descriptor] %s, Value: %r",
+                            descriptor,
+                            value,
                         )
                     except BleakError as e:
                         _LOGGER.debug("    [Descriptor] %s, Error: %s", descriptor, e)
         _LOGGER.debug("==== END SERVICES ====")
 
     async def poll_manufacturer(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> str:
-        """Returns the manufacturer of the light."""
+        """
+        Poll manufacturer data from device.
+
+        Poll the manufacturer data from the device (e.g Signify Netherlands B.V.).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Manufacture metadata.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_MANUFACTURER)
         decoded = encoded.decode("ascii", "ignore")
         if write_state:
             self._manufacturer = decoded
         return decoded
 
-    async def poll_model(self, write_state: bool = DEFAULT_POLL_WRITES_STATE) -> str:
-        """Returns the model of the light."""
+    async def poll_model(
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
+    ) -> str:
+        """
+        Poll model data from device.
+
+        Poll the model data from the device (e.g LCA006).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Model metadata.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_MODEL)
         decoded = encoded.decode("ascii", "ignore")
         if write_state:
             self._model = decoded
         return decoded
 
-    async def poll_firmware(self, write_state: bool = DEFAULT_POLL_WRITES_STATE) -> str:
-        """Returns the firmware version of the light."""
+    async def poll_firmware(
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
+    ) -> str:
+        """
+        Poll firmware version from device.
+
+        Poll the firmware version from the device (e.g 1.145.1).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Firmware version.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_FW_VERSION)
         decoded = encoded.decode("ascii", "ignore")
         if write_state:
@@ -918,9 +1108,18 @@ class HueBleLight:
         return decoded
 
     async def poll_zigbee_address(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> str:
-        """Returns the Zigbee address of the light."""
+        """
+        Poll Zigbee address from device.
+
+        Poll the Zigbee address from the device (e.g f4:2e:7f:0c:01:88:17:00).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Zigbee address.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_ZIGBEE_ADDRESS)
         decoded = encoded.hex(sep=":")
         if write_state:
@@ -928,10 +1127,17 @@ class HueBleLight:
         return decoded
 
     async def poll_light_name(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> str:
-        """Returns the name of the light as shown in the Hue app.
-        This may differ from the light objects name property.
+        """
+        Poll name of light.
+
+        Poll the name of the light as shown in the Hue app (e.g Desk Right).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Light name as shown in app.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
         """
         encoded = await self._read_gatt(UUID_NAME)
         decoded = encoded.decode("ascii", "ignore")
@@ -940,9 +1146,18 @@ class HueBleLight:
         return decoded
 
     async def poll_power_state(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> bool:
-        """Gets the current power state of the light."""
+        """
+        Poll on/off status of light.
+
+        Poll the on/off status of the light (e.g true=on, off=false).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Power state of device.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_POWER)
         decoded = bool(encoded[0])
         if write_state:
@@ -950,9 +1165,18 @@ class HueBleLight:
         return decoded
 
     async def poll_brightness(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> int:
-        """Gets the current brightness as an integer between 0 and 255."""
+        """
+        Poll brightness of light.
+
+        Poll the brightness of the light (0=min, 254=max inclusive).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Brightness of light.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         encoded = await self._read_gatt(UUID_BRIGHTNESS)
         decoded = encoded[0]
         if write_state:
@@ -960,10 +1184,22 @@ class HueBleLight:
         return decoded
 
     async def poll_colour_temp(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> int:
-        """Gets the current colour temperature as an integer
-        between 153 and 500. Uses mireds.
+        """
+        Poll colour temperature of the light.
+
+        Poll the colour temperature of the light in mireds.
+        The minimum is 153 and maximum is 500 for most models.
+
+        .. note::
+            Colour temperature mode is inactive if XY colour
+            is (0.0, 0.0) or (1.0, 1.0).
+
+        :param write_state: Write returned value to internal state.
+        :returns: Colour temperature of the light.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
         """
         encoded = await self._read_gatt(UUID_TEMPERATURE)
         decoded = int.from_bytes(encoded, "little")
@@ -972,9 +1208,22 @@ class HueBleLight:
         return decoded
 
     async def poll_colour_xy(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
     ) -> tuple[float, float]:
-        """Gets the XY colour coordinates as floats between 0.0 and 1.0."""
+        """
+        Poll colour of the light.
+
+        Poll the colour of the light in the XY colour space.
+        The minimum is (0.0, 0.0) and maximum is (1.0, 1.0).
+
+        .. note::
+            Is (0.0, 0.0) or (1.0, 1.0) if XY colour mode is inactive.
+
+        :param write_state: Write returned value to internal state.
+        :returns: XY colour of the light.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         buf = await self._read_gatt(UUID_XY_COLOUR)
         x, y = unpack("<HH", buf)
         x_after = x / 0xFFFF
@@ -983,10 +1232,20 @@ class HueBleLight:
             self._colour_xy = (x_after, y_after)
         return x_after, y_after
 
-    async def poll_effects(
-        self, write_state: bool = DEFAULT_POLL_WRITES_STATE
-    ) -> tuple[EffectType, int]:
-        """Gets the effect type and effect speed as enum and int between 0 and 255."""
+    async def poll_effects(  # noqa: C901
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
+    ) -> tuple[EffectType, int] | tuple[None, None]:
+        """
+        Poll effect state of the light.
+
+        Poll the effect type and effect speed of the light, the
+        minimum speed is 0 and maximum is 254.
+
+        :param write_state: Write returned value to internal state.
+        :returns: Effect state of light. Is tuple of None if effects are inactive.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
         data = await self._read_gatt(UUID_EFFECTS)
 
         _LOGGER.debug(f"Effect bytes: {data.hex()}")
@@ -1052,20 +1311,57 @@ class HueBleLight:
 
         return effect_type, effect_speed
 
-    async def set_light_name(self, name: str):
+    async def set_light_name(self, name: str) -> None:
+        """
+        Write device name.
+
+        Write a new device name to the device.
+
+        .. warning::
+            This is untested and could result in the device being bricked.
+            if misused. Use at even more of your own risk.
+
+        :param name: Name to write to device.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """
+
         """Sets the name of the light. Not tested, use at own risk."""
         await self._write_gatt(UUID_NAME, str.encode(name))
 
-    async def set_power(self, on: bool, transition_ms: int | None = None):
-        """Sets the power state of the light."""
+    async def set_power(
+        self,
+        on: bool,  # noqa: FBT001
+        transition_ms: int | None = None,
+    ) -> None:
+        """
+        Set the power state of the device.
+
+        Turn the device on/off with an optional transition time.
+
+        :param on: Turn the light on, else turn the light off.
+        :param transition_ms: Transition time in milliseconds, requires effect support.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """
         if transition_ms is None:
             await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
             return
 
         await self.set_effect(power=on, transition=transition_ms // 100)
 
-    async def set_brightness(self, brightness: int, transition_ms: int | None = None):
-        """Sets the brightness from an integer between 0 and 255"""
+    async def set_brightness(
+        self,
+        brightness: int,
+        transition_ms: int | None = None,
+    ) -> None:
+        """
+        Set the brightness of the light.
+
+        Set the brightness of the light with an optional transition time.
+
+        :param brightness: Brightness to set light to (0 min, 254 max inclusive).
+        :param transition_ms: Transition time in milliseconds, requires effect support.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """
         brightness = max(min(brightness, 254), 1)
         if transition_ms is None:
             await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
@@ -1073,9 +1369,22 @@ class HueBleLight:
 
         await self.set_effect(brightness=brightness, transition=transition_ms // 100)
 
-    async def set_colour_temp(self, colour_temp: int, transition_ms: int | None = None):
-        """Sets the temperature from an int between 153 and 500.
-        Uses mireds."""
+    async def set_colour_temp(
+        self,
+        colour_temp: int,
+        transition_ms: int | None = None,
+    ) -> None:
+        """
+        Set the colour temperature of the light.
+
+        Set the colour temperature of the light in mireds with an
+        optional transition time. Typically a light will support
+        a minimum of 153 and maximum of 500 inclusive.
+
+        :param colour_temp: Colour temperature to set light to in mireds.
+        :param transition_ms: Transition time in milliseconds, requires effect support.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """
         temp = max(min(int(colour_temp), 500), 153)
         data = temp.to_bytes(2, "little")
         if transition_ms is None:
@@ -1084,8 +1393,23 @@ class HueBleLight:
 
         await self.set_effect(colour=colour_temp, transition=transition_ms // 100)
 
-    async def set_colour_xy(self, x: float, y: float, transition_ms: int | None = None):
-        """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
+    async def set_colour_xy(
+        self,
+        x: float,
+        y: float,
+        transition_ms: int | None = None,
+    ) -> None:
+        """
+        Set the XY colour of the light.
+
+        Set the colour of the light in the XY colour space with an
+        optional transition time.
+
+        :param x: The X colour coordinate (min 0.0, max 1.0).
+        :param y: The Y colour coordinate (min 0.0, max 1.0).
+        :param transition_ms: Transition time in milliseconds, requires effect support.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """
         data = pack("<HH", int(x * 0xFFFF), int(y * 0xFFFF))
         if transition_ms is None:
             await self._write_gatt(UUID_XY_COLOUR, data)
@@ -1093,15 +1417,15 @@ class HueBleLight:
 
         await self.set_effect(colour=(x, y), transition=transition_ms // 100)
 
-    async def set_effect(
+    async def set_effect(  # noqa: C901, PLR0912, PLR0913, PLR0917
         self,
-        power: bool | None = None,
+        power: bool | None = None,  # noqa: FBT001
         brightness: int | None = None,
         colour: int | tuple[float, float] | None = None,
         effect: EffectType | None = None,
         effect_speed: int | None = None,
         transition: int | None = None,
-    ):
+    ) -> None:
         """
         Set the state of the light using the effects API.
 
@@ -1113,60 +1437,61 @@ class HueBleLight:
            This API may not be supported by all lights.
 
         :param power: Optionally set the power state of the light.
-        :param brightness: Optionally set the brightness of the light (0-255 excl 0 & 255).
+        :param brightness: Optionally set brightness of the light (0-255 excl 0 & 255).
         :param colour: Optionally set the colour of the light.
         :param effect: Optionally set the effect of the light.
         :param effect_speed: Optionally set the effect speed (0-255 excl 255).
         :param transition: Optionally set the transition speed in hundredths of milliseconds (e.g 1 = 100ms).
-
         :raises ValueError: If an invalid/out of range argument was provided.
-        """
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
+        """  # noqa: E501
         command_args: dict[TLVTag, Any] = {}
 
         if power is not None:
             command_args[TLVTag.ON_OFF] = power
 
         if brightness is not None:
-            if 0 >= brightness >= 255:
-                raise ValueError(
-                    f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)"
+            if 0 >= brightness >= 255:  # noqa: PLR2004
+                raise ValueError(  # noqa: TRY003
+                    f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)",  # noqa: E501, EM102
                 )
             command_args[TLVTag.BRIGHTNESS] = brightness
 
         if colour is not None and type(colour) is int:
-            if 0 > colour > 1000:
-                raise ValueError(
-                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)"
+            if 0 > colour > 1000:  # noqa: PLR2004
+                raise ValueError(  # noqa: TRY003
+                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)",  # noqa: E501, EM102
                 )
             command_args[TLVTag.COLOUR_TEMP] = colour
         elif colour is not None and type(colour) is tuple:
             x, y = colour
             if 0.0 >= x >= 1.0:
-                raise ValueError(
-                    f"X was '{x}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                raise ValueError(  # noqa: TRY003
+                    f"X was '{x}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)",  # noqa: E501, EM102
                 )
             if 0.0 >= y >= 1.0:
-                raise ValueError(
-                    f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)"
+                raise ValueError(  # noqa: TRY003
+                    f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)",  # noqa: E501, EM102
                 )
             command_args[TLVTag.COLOUR_XY] = (x, y)
         elif colour is not None:
-            raise ValueError(f"Expected int or tuple for colour but got '{colour}'!")
+            raise ValueError(  # noqa: TRY003
+                f"Expected int or tuple for colour but got '{colour}'!",  # noqa: EM102
+            )
 
         if effect is not None:
             command_args[TLVTag.EFFECT_TYPE] = effect
-
         if effect_speed is not None:
-            if 0 > effect_speed >= 255:
-                raise ValueError(
-                    f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)"
+            if 0 > effect_speed >= 255:  # noqa: PLR2004
+                raise ValueError(  # noqa: TRY003
+                    f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)",  # noqa: E501, EM102
                 )
             command_args[TLVTag.EFFECT_SPEED] = effect_speed
 
         if transition is not None:
-            if 0 > transition >= 255:
-                raise ValueError(
-                    f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)"
+            if 0 > transition >= 65535:  # noqa: PLR2004
+                raise ValueError(  # noqa: TRY003
+                    f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)",  # noqa: E501, EM102
                 )
             command_args[TLVTag.TRANSITION] = transition
 
@@ -1175,7 +1500,7 @@ class HueBleLight:
         _LOGGER.debug(f"Built packet bytes: {packet.hex()}")
         await self._write_gatt(UUID_EFFECTS, packet)
 
-    async def set_colour_effect(
+    async def set_colour_effect(  # noqa: PLR0913, PLR0917
         self,
         x: float,
         y: float,
@@ -1183,15 +1508,21 @@ class HueBleLight:
         effect: EffectType,
         effect_speed: int,
         transition_ms: int | None = None,
-    ):
+    ) -> None:
         """
-        Sets XY colour, brightness, effect and effect speed.
+        Set XY colour, brightness, effect and effect speed.
 
-        :param x: X colour coordinate as float between 0.0 and 1.0
-        :param y: Y colour coordinate as float between 0.0 and 1.0
-        :param brightness: brightness as an integer between 0 and 255
-        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
-        :param effect_speed: speed of the effect between 0 and 255
+        .. note::
+            This API may not be supported by all lights.
+
+        :param x: X colour coordinate as float between 0.0 and 1.0.
+        :param y: Y colour coordinate as float between 0.0 and 1.0.
+        :param brightness: brightness as an integer between 0 and 255.
+        :param effect: Effect (can be EffectType.NONE for plain colour).
+        :param effect_speed: Speed of the effect between 0 and 255.
+        :param transition_ms: Optional transition speed in milliseconds.
+        :raises ValueError: If an invalid/out of range argument was provided.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
         """
         await self.set_effect(
             power=True,
@@ -1209,14 +1540,20 @@ class HueBleLight:
         effect: EffectType,
         effect_speed: int,
         transition_ms: int | None = None,
-    ):
+    ) -> None:
         """
-        Sets colour temperature, brightness, effect and effect speed.
+        Set colour temperature, brightness, effect and effect speed.
 
-        :param colour_temp: colour temperature between 0 and 1000
-        :param brightness: brightness as an integer between 0 and 255
-        :param effect: Effect of Type EffectType (can be EffectType.NONE for plain colour)
-        :param effect_speed: speed of the effect between 0 and 255
+        .. note::
+            This API may not be supported by all lights.
+
+        :param colour_temp: colour temperature between 0 and 1000.
+        :param brightness: brightness as an integer between 0 and 255.
+        :param effect: Effect (can be EffectType.NONE for plain colour).
+        :param effect_speed: speed of the effect between 0 and 255.
+        :param transition_ms: Optional transition speed in milliseconds.
+        :raises ValueError: If an invalid/out of range argument was provided.
+        :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
         """
 
         await self.set_effect(
@@ -1230,17 +1567,35 @@ class HueBleLight:
 
     @property
     def connected(self) -> bool:
-        """Returns true if the client is connected to a light.
-        This does not however mean that we are able to send
-        and receive commands. Use the "available" property for that.
+        """
+        Is connected to device.
+
+        Returns true if the :exc:`~bleak.BleakClient` is connected to a device.
+
+        .. warning::
+            Being connected does not necessarily mean that we are able to send
+            and receive commands. Instead use :attr:`~HueBleLight.authenticated`
+            for authentication status and :attr:`~HueBleLight.available` for
+            ability to send/receive commands.
+
+        :returns: Is connected.
         """
         return self._client is not None and self._client.is_connected
 
     @property
     def authenticated(self) -> bool | None:
-        """Returns true if the light is paired.
-        This only works on Linux. Returns None if unable
-        to determine if device is authenticated.
+        """
+        Is authenticated/paired to device.
+
+        Returns true if the device is paired, false if not, and None if status is
+        unknown.
+
+        .. note::
+            It is only possible to determine if the device is paired on Linux when
+            the BlueZ backend is being used. None will be returned in all other cases.
+
+        :returns bool: True if authenticated, false if not.
+        :returns None: If authentication status is unknown.
         """
 
         # If the platform is not Linux then as far as I know there is
@@ -1251,7 +1606,7 @@ class HueBleLight:
         # so I should probably take another look in the future.
         if platform.system() != "Linux":
             _LOGGER.info(
-                f"""Unable to determine if paired to "{self.name}" due to the platform!"""
+                f"Unable to determine if paired to '{self.name}' due to the platform!",
             )
             return None
 
@@ -1262,7 +1617,7 @@ class HueBleLight:
         # it is unknown if we are authenticated to it
         if properties is None:
             _LOGGER.info(
-                f"""Unable to determine if paired to "{self.name}" as that metadata was missing"""
+                f"Pairing status of '{self.name}'' unknown due to missing metadata",
             )
             return None
 
@@ -1271,21 +1626,28 @@ class HueBleLight:
             return True
 
         # If not paired return False
-        elif properties.get("Paired") is False:
+        if properties.get("Paired") is False:
             return False
 
         # If unknown return None
-        else:
-            _LOGGER.info(
-                f"""Unable to determine if paired to "{self.name}" as that section of the metadata was missing. Properties: {properties}" """
-            )
-            return None
+        _LOGGER.info(
+            f"Pairing status of '{self.name}' unknown due to missing metadata. "
+            f"Properties: '{properties}'.",
+        )
+        return None
 
     @property
     def available(self) -> bool:
-        """Is the light connected and authenticated.
-        Meaning are we able to send/receive commands to/from the light.
-        On non-Linux systems it is assumed we are authenticated!.
+        """
+        Is the light connected and authenticated.
+
+        Returns true if we are connected and authenticated, i.e we
+        are able to send/receive commands to/from the device.
+
+        .. note::
+            On non-Linux systems it is assumed we are authenticated!.
+
+        :returns: Device availability for sending/receiving commands.
         """
         if self.connected:
             authenticated = self.authenticated
@@ -1293,114 +1655,207 @@ class HueBleLight:
             # If we do not know the auth status assume it is ok
             if authenticated is None:
                 return True
-            else:
-                # If we are authenticated then we may send/receive commands
-                return authenticated
+
+            # If we are authenticated then we may send/receive commands
+            return authenticated
         return False
 
     @property
     def address(self) -> str:
-        """MAC address of the light."""
+        """MAC address of the device."""
         return self._ble_device.address
 
     @property
     def manufacturer(self) -> str | None:
-        """Manufacturer of the light."""
+        """
+        Manufacturer of the device.
+
+        Example: Signify Netherlands B.V.
+
+        :returns str: If manufacturer known.
+        :returns None: If manufacturer data not polled yet or not supported.
+        """
         return self._manufacturer
 
     @property
     def model(self) -> str | None:
-        """Model of the light."""
+        """
+        Model of the device.
+
+        Example: LCA006
+
+        :returns str: If model known.
+        :returns None: If model data not polled yet or not supported.
+        """
         return self._model
 
     @property
     def firmware(self) -> str | None:
-        """Firmware of the light."""
+        """
+        Firmware version of the device.
+
+        Example: 1.145.1
+
+        :returns str: If firmware version known.
+        :returns None: If firmware version data not polled yet or not supported.
+        """
         return self._fw
 
     @property
     def zigbee_address(self) -> str | None:
-        """Zigbee address of the light."""
+        """
+        Zigbee address of the device.
+
+        Example: f4:2e:7f:0c:01:88:17:00
+
+        :returns str: If Zigbee address known.
+        :returns None: If Zigbee address data not polled yet or not supported.
+        """
         return self._zigbee_address
 
     @property
     def name(self) -> str | None:
-        """Bluetooth name of the light.
-        Should not but may differ from value from poll_light_name().
+        """
+        Name of the device.
+
+        Example: Desk Right
+
+        .. note::
+            This is the name of the device that the operating system
+            has provided. This may differ from :attr:`~HueBleLight.name_in_app`.
+
+        :returns str: If device name known.
+        :returns None: If operating system does not know name.
         """
         return self._ble_device.name
 
     @property
     def name_in_app(self) -> str | None:
-        """Name of light in Hue app.
-        Should not but may differ from the name (bluetooth) property.
+        """
+        Name of device.
+
+        Example: Desk Right
+
+        .. note::
+            This is the name of the device from polling device metadata
+            and may differ from :attr:`~HueBleLight.name` which is the
+            operating system provided value.
+
+        :returns str: If device name known.
+        :returns None: If Device name data not polled yet.
         """
         return self._light_name
 
     @property
     def power_state(self) -> bool | None:
-        """Is the light running?, you better go catch it."""
+        """
+        Power state of the device.
+
+        The on/off status of the device (e.g true=on, false=off).
+
+        :returns bool: True if on, False if off.
+        :returns None: If state not polled/pushed yet or feature is not supported.
+        """
         if self.supports_on_off:
             return self._power_on
-        else:
-            return None
+        return None
 
     @property
     def brightness(self) -> int | None:
-        """Brightness of the light. Int 0-255.
-        Returns None if the feature is not supported by the light.
+        """
+        Brightness of the light.
+
+        Brightness of the light as an integer (0=min, 254=max inclusive).
+
+        :returns int: Brightness of light.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_brightness:
             return self._brightness
-        else:
-            return None
+        return None
 
     @property
     def colour_temp(self) -> int | None:
-        """Colour temperature of the light in mireds. Int 153-500.
-        Returns None if the feature is not supported by the light.
+        """
+        Colour temperature of the light.
+
+        Colour temperature of the light in mireds.
+        The minimum is 153 and maximum is 500 for most models.
+
+        .. note::
+            Colour temperature mode is inactive if XY colour
+            is (0.0, 0.0) or (1.0, 1.0).
+
+        :returns int: Colour temperature of light in mireds.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_colour_temp:
             return self._colour_temp
-        else:
-            return None
+        return None
 
     @property
     def minimum_mireds(self) -> int | None:
-        """Minimum mireds colour temperature supported.
-        Returns None if the feature is not supported by the light.
-        This value is assumed and not actually polled from the light.
+        """
+        Minimum supported colour temperature.
+
+        Minimum supported colour temperature of the light
+        in mireds.
+
+        .. warning::
+            This value is not polled from the light and is assumed. Future
+            updates may take advantage of this interface.
+
+        :returns int: Minimum colour temperature of light in mireds.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_colour_temp:
             return self._minimum_mireds
-        else:
-            return None
+        return None
 
     @property
     def maximum_mireds(self) -> int | None:
-        """Maximum mireds colour temperature supported.
-        Returns None if the feature is not supported by the light.
-        This value is assumed and not actually polled from the light.
+        """
+        Maximum supported colour temperature.
+
+        Maximum supported colour temperature of the light
+        in mireds.
+
+        .. warning::
+            This value is not polled from the light and is assumed. Future
+            updates may take advantage of this interface.
+
+        :returns int: Maximum colour temperature of light in mireds.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_colour_temp:
             return self._maximum_mireds
-        else:
-            return None
+        return None
 
     @property
     def colour_xy(self) -> tuple[float, float] | None:
-        """Colour in XY coordinates. (0.0, 0.0) - (1.0, 1.0).
-        Returns None if the feature is not supported by the light.
+        """
+        Colour of the light.
+
+        Colour of the light in the XY colour space.
+        The minimum is (0.0, 0.0) and maximum is (1.0, 1.0).
+
+        .. note::
+            Is (0.0, 0.0) or (1.0, 1.0) if XY colour mode is inactive.
+
+        :returns tuple[float, float]: XY colour coordinates of light.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_colour_xy:
             return self._colour_xy
-        else:
-            return None
+        return None
 
     @property
     def colour_temp_mode(self) -> bool | None:
-        """True if the light is in colour temperature mode, else false.
-        Returns None if the feature is not supported by the light.
+        """
+        Is colour temperature mode active.
+
+        :returns bool: True if colour temperature mode active, false if inactive.
+        :returns None: If feature is not supported by device.
         """
         # If the light does not support colour temp
         # it can't be in colour temp mode
@@ -1415,7 +1870,7 @@ class HueBleLight:
         # Else the light supports colour temperature and XY colour
         # The light is in colour temperature mode when the XY colour
         # is (0.0, 0.0) or (1.0, 1.0)
-        if self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0):
+        if self._colour_xy in ((0.0, 0.0), (1.0, 1.0)):
             return True
 
         # If we do not know what the XY colour is but do know what the colour temp is
@@ -1433,53 +1888,89 @@ class HueBleLight:
 
     @property
     def effect(self) -> tuple[EffectType | None, int | None] | None:
-        """Effect as tuple of EffectType enum and effect speed.
-        Returns None if the feature is not supported by the light.
+        """
+        Effect of light.
+
+        The currently active effect as a tuple of the :class:`~HueBLE.EffectType` enum
+        and effect speed (min=0, max=254 inc).
+
+        .. note::
+            Effects are inactive if this returns `None` but also if the effect type
+            is :attr:`~HueBLE.EffectType.NONE`.
+
+        :returns tuple[EffectType, int]: Tuple of effect type and speed.
+        :returns None: If state not polled/pushed yet or feature is not supported.
         """
         if self.supports_effects:
             return (self._effect, self._effect_speed)
-        else:
-            return None
+        return None
 
     @property
     def supports_on_off(self) -> bool | None:
-        """Does the light support turning on and off.
-        Yes I know it's silly but its for forwards compatibility
-        in case a bluetooth sensor is ever released.
+        """
+        Does the device support switching on/off.
 
-        Returns None if support status is unknown.
+        Yes I know it's silly but its for forwards compatibility
+        in case a BLE sensor is ever released.
+
+        :returns bool: Bool of support status if known.
+        :returns None: If support status is unknown / not polled yet.
         """
         return self._supports_on_off
 
     @property
     def supports_brightness(self) -> bool | None:
-        """Does the light support brightness control.
+        """
+        Does the device support brightness adjustment.
 
-        Returns None if support status is unknown."""
+        Devices such as the Hue smart plug do not support brightness.
+
+        :returns bool: Bool of support status if known.
+        :returns None: If support status is unknown / not polled yet.
+        """
         return self._supports_brightness
 
     @property
     def supports_colour_temp(self) -> bool | None:
-        """Does the light support colour temperature control.
+        """
+        Does the device support colour temperature adjustment.
 
-        Returns None if support status is unknown."""
+        Devices such as the white only lights do not support colour
+        temperature adjustments.
+
+        :returns bool: Bool of support status if known.
+        :returns None: If support status is unknown / not polled yet.
+        """
         return self._supports_colour_temp
 
     @property
     def supports_colour_xy(self) -> bool | None:
-        """Does the light support XY (RGB) colour control.
+        """
+        Does the device support XY colour adjustment.
 
-        Returns None if support status is unknown."""
+        Devices such as the colour temperature only lights do not support
+        XY colour adjustments.
+
+        :returns bool: Bool of support status if known.
+        :returns None: If support status is unknown / not polled yet.
+        """
         return self._supports_colour_xy
 
     @property
     def supports_effects(self) -> bool | None:
-        """Does the light support effect control.
+        """
+        Does the device support the effects API.
 
-        Returns None if support status is unknown."""
+        Its likely (though untested) that older devices such as the Go 2.0 light
+        do not support the effects API.
+
+        :returns bool: Bool of support status if known.
+        :returns None: If support status is unknown / not polled yet.
+        """
         return self._supports_effects
 
     def __repr__(self) -> str:
+        """Representation of of the devices state for logging."""
         return (
             f"{type(self).__name__}("
             # Internals
@@ -1508,7 +1999,7 @@ class HueBleLight:
             f"supports_metadata_manufacturer={self._supports_metadata_manufacturer!r}, "
             f"supports_metadata_model={self._supports_metadata_model!r}, "
             f"supports_metadata_firmware={self._supports_metadata_firmware!r}, "
-            f"supports_metadata_zigbee_address={self._supports_metadata_zigbee_address!r}, "
+            f"supports_metadata_zigbee_address={self._supports_metadata_zigbee_address!r}, "  # noqa: E501
             f"supports_metadata_name_in_app={self._supports_metadata_name_in_app!r}, "
             f"supports_on_off={self._supports_on_off!r}, "
             f"supports_brightness={self._supports_brightness!r}, "

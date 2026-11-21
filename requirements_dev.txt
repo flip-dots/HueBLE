@@ -6,3 +6,5 @@ bleak-retry-connector
 dbus-fast
 aioconsole
 construct-typing
+mypy
+ruff

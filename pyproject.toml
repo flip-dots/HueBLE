@@ -30,12 +30,16 @@ classifiers = [
 [tool.setuptools]
 py-modules = ['HueBLE']
 
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D200", "D202", "D212", "G004", "PIE790", "N999"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
 [project.urls]
 Homepage = "https://github.com/flip-dots/HueBLE"
 Documentation = "https://hueble.readthedocs.io/en/latest/"
 Repository = "https://github.com/flip-dots/HueBLE"
 Issues = "https://github.com/flip-dots/HueBLE/issues"
 Changelog = "https://hueble.readthedocs.io/en/latest/history.html"
-
-[tool.ruff.lint]
-ignore = ["N999"]
