@@ -35,7 +35,7 @@ Exceptions
 ----------------
 
 .. automodule:: HueBLE
-   :members: HueBleError, ConnectionError, InitialConnectionError, PairingError, ReadWriteError, ServicesError, CallbackError
+   :members: HueBleError, ConnectionError, InitialConnectionError, PairingError, TimeoutError, NotConnectedError, ReadWriteError, ServicesError, CallbackError
    :no-index:
 
 Enums

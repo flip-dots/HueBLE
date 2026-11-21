@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import builtins
 import logging
 import platform
 import uuid
@@ -14,7 +15,7 @@ from typing import Any
 
 from bleak import BleakClient, BleakError
 from bleak.backends import BleakBackend
-from bleak.backends.client import BaseBleakClient
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 
@@ -50,15 +51,17 @@ from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
 from HueBLE.exceptions import (
     CallbackError,
     InitialConnectionError,
+    NotConnectedError,
     PairingError,
     ReadWriteError,
     ServicesError,
+    TimeoutError,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class HueBleLight(object):
+class HueBleLight:
     """Philips Hue BLE Light object."""
 
     def __init__(self, ble_device: BLEDevice):
@@ -132,7 +135,7 @@ class HueBleLight(object):
                     f"""Exception executing state changed callback on "{self.name}". Function: "{function.__name__}". E: "{e}"."""
                 ) from e
 
-    def _disconnect_callback(self, client: BaseBleakClient) -> None:
+    def _disconnect_callback(self, client: BleakClient) -> None:
         """Private method. Updates program state and will attempt reconnect
         if the disconnect was unexpected.
         """
@@ -196,10 +199,15 @@ class HueBleLight(object):
         :raises Exception: If unable to subscribe to supported features.
         """
 
+        if self._client is None:
+            raise NotConnectedError(
+                "Unable to subscribe to services as we are not connected to the device!"
+            )
+
         # If Effects is supported
         if self.supports_effects:
 
-            def report(cHandle: int, data: bytearray) -> None:
+            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
 
                 _LOGGER.debug(f"Effect bytes: {data.hex()}")
                 tlv = TLV_EFFECT.parse(data)
@@ -276,7 +284,7 @@ class HueBleLight(object):
         # If turning off an on is supported :|
         if self.supports_on_off:
 
-            def report(cHandle: int, data: bytearray) -> None:
+            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._power_on = bool(data[0])
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -291,7 +299,7 @@ class HueBleLight(object):
         # If brightness is supported
         if self.supports_brightness:
 
-            def report(cHandle: int, data: bytearray) -> None:
+            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._brightness = data[0]
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -306,7 +314,7 @@ class HueBleLight(object):
         # If colour temperature is supported
         if self.supports_colour_temp:
 
-            def report(cHandle: int, data: bytearray) -> None:
+            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
                 self._colour_temp = int.from_bytes(data, "little")
                 _LOGGER.debug(
                     f"""Light "{self.name}" has informed us of a new"""
@@ -321,7 +329,7 @@ class HueBleLight(object):
         # If XY colour is supported
         if self.supports_colour_xy:
 
-            def report(cHandle: int, data: bytearray) -> None:
+            def report(cHandle: BleakGATTCharacteristic, data: bytearray) -> None:
                 x, y = unpack("<HH", data)
                 self._colour_xy = (x / 0xFFFF, y / 0xFFFF)
                 _LOGGER.debug(
@@ -423,8 +431,8 @@ class HueBleLight(object):
 
                                 # If we failed to connect
                                 if not self._client.is_connected:
-                                    raise Exception(
-                                        f"""Not connected to "{self.name}"."""
+                                    raise NotConnectedError(
+                                        f"""Not connected to "{self.name}" after establish_connection()."""
                                     )
 
                             except Exception as e:
@@ -478,13 +486,13 @@ class HueBleLight(object):
                             # since we have achieved a connection, a state change, then
                             # return
 
-                    except asyncio.TimeoutError as e:
-                        raise Exception(
+                    except builtins.TimeoutError as e:
+                        raise TimeoutError(
                             f"""Timed out attempting to connect to "{self.name}"."""
                         ) from e
 
-        except asyncio.TimeoutError as e:
-            raise ConnectionError(
+        except builtins.TimeoutError as e:
+            raise TimeoutError(
                 f"""Timed out waiting for connection lock for "{self.name}"."""
             ) from e
 
@@ -522,7 +530,7 @@ class HueBleLight(object):
                 else:
                     await self._client.pair()
 
-        except asyncio.TimeoutError as e:
+        except builtins.TimeoutError as e:
             raise PairingError(
                 f"""Timed out attempting to pair to "{self.name}"."""
             ) from e
@@ -534,9 +542,9 @@ class HueBleLight(object):
 
     async def _pair_bluez(self):
         """Workaround for bluez authentication issues."""
+        from dbus_fast import BusType
         from dbus_fast.aio import MessageBus
         from dbus_fast.service import ServiceInterface, method
-        from dbus_fast import BusType
 
         class BluezAgent(ServiceInterface):
             """Agent for automatically accepting pairing passkeys."""
@@ -545,9 +553,8 @@ class HueBleLight(object):
                 super().__init__("org.bluez.Agent1")
 
             @method()
-            def RequestConfirmation(self, device: "o", passkey: "u"):
+            def RequestConfirmation(self, device: "o", passkey: "u"):  # type: ignore  # noqa: F821
                 _LOGGER.debug(f"Auto confirming passkey {passkey} for {device}")
-                return
 
             @method()
             def Cancel(self):
@@ -589,6 +596,11 @@ class HueBleLight(object):
         # If debug mode enabled print all services offered by light as well as the readable values
         if _LOGGER.isEnabledFor(logging.DEBUG):
             await self.print_services()
+
+        if self._client is None:
+            raise NotConnectedError(
+                "Unable to determine services as we are not connected to the device!"
+            )
 
         self._supports_metadata_manufacturer = (
             self._client.services.get_characteristic(UUID_MANUFACTURER) is not None
@@ -673,46 +685,41 @@ class HueBleLight(object):
                 _LOGGER.debug(f"""Processing state update request for "{self.name}".""")
 
                 if self._supports_metadata_manufacturer:
-                    prev = self.manufacturer
-                    if prev != await self.poll_manufacturer(write_state=True):
+                    if self.manufacturer != await self.poll_manufacturer(
+                        write_state=True
+                    ):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling manufacturer")
 
                 if self._supports_metadata_model:
-                    prev = self.model
-                    if prev != await self.poll_model(write_state=True):
+                    if self.model != await self.poll_model(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling model")
 
                 if self._supports_metadata_firmware:
-                    prev = self.firmware
-                    if prev != await self.poll_firmware(write_state=True):
+                    if self.firmware != await self.poll_firmware(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling firmware version")
 
                 if self._supports_metadata_zigbee_address:
-                    prev = self.zigbee_address
-                    if prev != await self.poll_zigbee_address(write_state=True):
+                    if self.zigbee_address != await self.poll_zigbee_address(
+                        write_state=True
+                    ):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling ZigBee address")
 
                 if self._supports_metadata_name_in_app:
-                    prev = self.name_in_app
-                    if prev != await self.poll_light_name(write_state=True):
+                    if self.name_in_app != await self.poll_light_name(write_state=True):
                         state_changed = True
                 else:
                     _LOGGER.debug("Light does not support polling light name")
 
                 if self.supports_effects:
-                    prev_effect_speed = self._effect_speed
-                    prev_effect = self._effect
-
-                    effect, effect_speed = await self.poll_effects(write_state=True)
-                    if prev_effect != effect or prev_effect_speed != effect_speed:
+                    if self.effect != await self.poll_effects(write_state=True):
                         state_changed = True
 
                 # If the effects API is supported then we do not need to poll the
@@ -721,29 +728,33 @@ class HueBleLight(object):
                     _LOGGER.debug("Light does not support polling effects")
 
                     if self.supports_on_off:
-                        prev = self.power_state
-                        if prev != await self.poll_power_state(write_state=True):
+                        if self.power_state != await self.poll_power_state(
+                            write_state=True
+                        ):
                             state_changed = True
                     else:
                         _LOGGER.debug("Light does not support polling power state")
 
                     if self.supports_brightness:
-                        prev = self.brightness
-                        if prev != await self.poll_brightness(write_state=True):
+                        if self.brightness != await self.poll_brightness(
+                            write_state=True
+                        ):
                             state_changed = True
                     else:
                         _LOGGER.debug("Light does not support polling brightness")
 
                     if self.supports_colour_temp:
-                        prev = self.colour_temp
-                        if prev != await self.poll_colour_temp(write_state=True):
+                        if self.colour_temp != await self.poll_colour_temp(
+                            write_state=True
+                        ):
                             state_changed = True
                     else:
                         _LOGGER.debug("Light does not support polling colour temp")
 
                     if self.supports_colour_xy:
-                        prev = self.colour_xy
-                        if prev != await self.poll_colour_xy(write_state=True):
+                        if self.colour_xy != await self.poll_colour_xy(
+                            write_state=True
+                        ):
                             state_changed = True
                     else:
                         _LOGGER.debug("Light does not support polling XY colour")
@@ -766,21 +777,30 @@ class HueBleLight(object):
         """Reads a GATT attribute from the light.
         If there is an error an exception will be thrown.
         """
+        _LOGGER.debug(f"""Reading bytes at "{property}" from "{self.name}"...""")
         last_error = None
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
-                    await self.connect()
+                    if not self.connected:
+                        _LOGGER.debug(
+                            "Not connected to light. Executing connect before proceeding with read..."
+                        )
+                        await self.connect()
+                    if self._client is None:
+                        raise NotConnectedError(
+                            "Unable to read value from device as we are not connected!"
+                        )
                     return await self._client.read_gatt_char(property)
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
                     f"""Failed to read value from "{self.name}" on attempt"""
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
                 last_error = e
         raise ReadWriteError(
-            f"""Unable to read from "{self.name}" after"""
+            f"""Unable to read "{property}" from "{self.name}" after"""
             f""" {max_attempts} attempts"""
         ) from last_error
 
@@ -790,28 +810,39 @@ class HueBleLight(object):
         data: bytes,
         attempt_timeout: int = DEFAULT_WRITE_GATT_TIMEOUT,
         max_attempts: int = DEFAULT_WRITE_GATT_MAX_ATTEMPTS,
-    ) -> bytearray:
+    ) -> None:
         """Writes a GATT attribute to a light.
         Will attempt to connect if not already connected.
         Will throw an exception on error.
         """
+        _LOGGER.debug(
+            f"""Writing bytes "{data.hex()}" at "{property}" to "{self.name}"..."""
+        )
         last_error = None
         for i in range(1, max_attempts + 1):
             try:
                 async with asyncio.timeout(attempt_timeout):
-                    await self.connect()
+                    if not self.connected:
+                        _LOGGER.debug(
+                            "Not connected to light. Executing connect before proceeding with write..."
+                        )
+                        await self.connect()
+                    if self._client is None:
+                        raise NotConnectedError(
+                            "Unable to write value to device as we are not connected!"
+                        )
                     return await self._client.write_gatt_char(
                         property, data, response=True
                     )
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
                     f"""Failed to write value to "{self.name}" on attempt"""
                     f""" {i}/{max_attempts}. Error message "{e}"."""
                 )
                 last_error = e
         raise ReadWriteError(
-            f"""Unable to write to "{self.name}" after"""
+            f"""Unable to write "{data.hex()}" at "{property}" to "{self.name}" after"""
             f""" {max_attempts} attempts"""
         ) from last_error
 
@@ -819,7 +850,14 @@ class HueBleLight(object):
         """
         Prints all available GATT services in the debug log.
         See: `original <https://github.com/hbldh/bleak/blob/develop/examples/service_explorer.py>`_
+
+        :raises ConnectionError: If no connection/client has been established.
         """
+        if self._client is None:
+            raise NotConnectedError(
+                "Unable to print services as we are not connected to the device!"
+            )
+
         _LOGGER.debug("==== START SERVICES ====")
         for service in self._client.services:
             _LOGGER.debug("[Service] %s", service)
@@ -829,7 +867,7 @@ class HueBleLight(object):
                     try:
                         value = await self._client.read_gatt_char(char.uuid)
                         extra = f", Value: {value}"
-                    except Exception as e:
+                    except BleakError as e:
                         extra = f", Error: {e}"
                 else:
                     extra = ""
@@ -849,7 +887,7 @@ class HueBleLight(object):
                         _LOGGER.debug(
                             "    [Descriptor] %s, Value: %r", descriptor, value
                         )
-                    except Exception as e:
+                    except BleakError as e:
                         _LOGGER.debug("    [Descriptor] %s, Error: %s", descriptor, e)
         _LOGGER.debug("==== END SERVICES ====")
 
@@ -1083,7 +1121,7 @@ class HueBleLight(object):
 
         :raises ValueError: If an invalid/out of range argument was provided.
         """
-        command_args = {}
+        command_args: dict[TLVTag, Any] = {}
 
         if power is not None:
             command_args[TLVTag.ON_OFF] = power
@@ -1133,8 +1171,8 @@ class HueBleLight(object):
             command_args[TLVTag.TRANSITION] = transition
 
         _LOGGER.debug(f"Building packet with arguments: {command_args}")
-        packet = TLV_EFFECT.build(command_args)
-        _LOGGER.debug(f"Built packet bytes: {packet}")
+        packet = TLV_EFFECT.build(command_args)  # type: ignore[arg-type]
+        _LOGGER.debug(f"Built packet bytes: {packet.hex()}")
         await self._write_gatt(UUID_EFFECTS, packet)
 
     async def set_colour_effect(
@@ -1196,7 +1234,7 @@ class HueBleLight(object):
         This does not however mean that we are able to send
         and receive commands. Use the "available" property for that.
         """
-        return self._client and self._client.is_connected
+        return self._client is not None and self._client.is_connected
 
     @property
     def authenticated(self) -> bool | None:
@@ -1286,7 +1324,7 @@ class HueBleLight(object):
         return self._zigbee_address
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         """Bluetooth name of the light.
         Should not but may differ from value from poll_light_name().
         """
@@ -1371,21 +1409,23 @@ class HueBleLight(object):
 
         # If the light does support temperature but does not support
         # XY colour then it must be in colour temperature mode.
-        elif not self.supports_colour_xy:
+        if not self.supports_colour_xy:
             return True
 
         # Else the light supports colour temperature and XY colour
         # The light is in colour temperature mode when the XY colour
         # is (0.0, 0.0) or (1.0, 1.0)
-        elif self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0):
+        if self._colour_xy == (0.0, 0.0) or self._colour_xy == (1.0, 1.0):
             return True
 
         # If we do not know what the XY colour is but do know what the colour temp is
-        elif self._colour_xy is None and self._colour_temp is not None:
+        # then we must be in colour temp mode
+        if self._colour_xy is None and self._colour_temp is not None:
             return True
 
         # If we do not know the colour temp but we do know the xy colour
-        elif self._colour_xy is not None and self._colour_temp is None:
+        # then we must be in XY colour mode
+        if self._colour_xy is not None and self._colour_temp is None:
             return False
 
         # Otherwise we do not know

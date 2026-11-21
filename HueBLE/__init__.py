@@ -10,9 +10,11 @@ from .exceptions import (
     ConnectionError,
     HueBleError,
     InitialConnectionError,
+    NotConnectedError,
     PairingError,
     ReadWriteError,
     ServicesError,
+    TimeoutError,
 )
 from .light import HueBleLight
 from .scan import discover_lights
@@ -24,8 +26,10 @@ __all__ = [
     "HueBleError",
     "HueBleLight",
     "InitialConnectionError",
+    "NotConnectedError",
     "PairingError",
     "ReadWriteError",
     "ServicesError",
+    "TimeoutError",
     "discover_lights",
 ]

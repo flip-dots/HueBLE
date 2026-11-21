@@ -16,6 +16,7 @@ from bleak.exc import BleakError
 
 import HueBLE
 from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
+from HueBLE.exceptions import TimeoutError
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
 
@@ -907,7 +908,7 @@ async def test_authenticated(
             None,
             None,
             sleep_side_effect,
-            ConnectionError,
+            TimeoutError,
             [
                 "Timed out waiting for connection lock for",
             ],

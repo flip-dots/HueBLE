@@ -20,9 +20,6 @@ async def discover_lights(
     a list of nearby lights based upon detection of a known UUID.
     """
 
-    if scanner is None:
-        scanner = BleakScanner
-
     devices = []
 
     # Callback for when advertising data is received
@@ -34,7 +31,7 @@ async def discover_lights(
             devices.append(device)
 
     # Scan for timeout seconds
-    async with BleakScanner(callback) as scanner:
+    async with scanner or BleakScanner(callback):
         await asyncio.sleep(timeout)
 
     # Return what we found

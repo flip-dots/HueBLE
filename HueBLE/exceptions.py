@@ -29,6 +29,18 @@ class PairingError(HueBleError):
     """
 
 
+class TimeoutError(HueBleError):
+    """
+    Exception raised when an operation timed out.
+    """
+
+
+class NotConnectedError(HueBleError):
+    """
+    Exception raised when not connected to the device for an operation which requires it.
+    """
+
+
 class ReadWriteError(HueBleError):
     """
     Exception raised when reading or writing a GATT attribute fails.
