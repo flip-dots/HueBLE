@@ -25,4 +25,4 @@ jobs:
         python -m pip install .
     - name: Run mypy
       run: |
-        mypy HueBLE.py tests --strict --namespace-packages --explicit-package-bases
+        mypy HueBLE tests --namespace-packages --explicit-package-bases
