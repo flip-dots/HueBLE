@@ -1062,7 +1062,7 @@ class HueBleLight:
             await self._write_gatt(UUID_POWER, bytes([1 if on else 0]))
             return
 
-        await self.set_effect(power=on, transition=transition_ms)
+        await self.set_effect(power=on, transition=transition_ms // 100)
 
     async def set_brightness(self, brightness: int, transition_ms: int | None = None):
         """Sets the brightness from an integer between 0 and 255"""
@@ -1071,7 +1071,7 @@ class HueBleLight:
             await self._write_gatt(UUID_BRIGHTNESS, bytes([brightness]))
             return
 
-        await self.set_effect(brightness=brightness, transition=transition_ms)
+        await self.set_effect(brightness=brightness, transition=transition_ms // 100)
 
     async def set_colour_temp(self, colour_temp: int, transition_ms: int | None = None):
         """Sets the temperature from an int between 153 and 500.
@@ -1082,7 +1082,7 @@ class HueBleLight:
             await self._write_gatt(UUID_TEMPERATURE, data)
             return
 
-        await self.set_effect(colour=colour_temp, transition=transition_ms)
+        await self.set_effect(colour=colour_temp, transition=transition_ms // 100)
 
     async def set_colour_xy(self, x: float, y: float, transition_ms: int | None = None):
         """Sets the XY colour coordinates from floats between 0.0 and 1.0."""
@@ -1091,7 +1091,7 @@ class HueBleLight:
             await self._write_gatt(UUID_XY_COLOUR, data)
             return
 
-        await self.set_effect(colour=(x, y), transition=transition_ms)
+        await self.set_effect(colour=(x, y), transition=transition_ms // 100)
 
     async def set_effect(
         self,
@@ -1117,7 +1117,7 @@ class HueBleLight:
         :param colour: Optionally set the colour of the light.
         :param effect: Optionally set the effect of the light.
         :param effect_speed: Optionally set the effect speed (0-255 excl 255).
-        :param transition: Optionally set the transition speed in milliseconds.
+        :param transition: Optionally set the transition speed in hundredths of milliseconds (e.g 1 = 100ms).
 
         :raises ValueError: If an invalid/out of range argument was provided.
         """
@@ -1199,7 +1199,7 @@ class HueBleLight:
             colour=(x, y),
             effect=effect,
             effect_speed=effect_speed,
-            transition=transition_ms,
+            transition=(transition_ms // 100 if transition_ms else None),
         )
 
     async def set_temperature_effect(
@@ -1225,7 +1225,7 @@ class HueBleLight:
             colour=colour_temp,
             effect=effect,
             effect_speed=effect_speed,
-            transition=transition_ms,
+            transition=(transition_ms // 100 if transition_ms else None),
         )
 
     @property
