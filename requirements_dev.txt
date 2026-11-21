@@ -5,3 +5,4 @@ bleak
 bleak-retry-connector
 dbus-fast
 aioconsole
+construct-typing

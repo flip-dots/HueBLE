@@ -1,12 +1,14 @@
 import asyncio
-import bleak
 import logging
 import sys
 
+import bleak
+
 # Allows for reading and writing to the console at the same time
 # pip3 install aioconsole
-from aioconsole import ainput
-from HueBLE import HueBleLight, discover_lights, EffectType
+from aioconsole import ainput  # type: ignore[import-untyped]
+
+from HueBLE import EffectType, HueBleLight, discover_lights
 
 # Ask if debug log is wanted
 while True:
@@ -27,7 +29,6 @@ light = None
 
 def light_state_callback():
     """Callback which is run when the light notified us of a state change."""
-    global light
 
     print("==== REMOTE STATE CHANGE DETECTED ====")
     print(f"Light power state: {light.power_state}")
@@ -79,7 +80,11 @@ async def main():
                 "9. Exit"
             )
 
-            action = int(await ainput("> ")) - 1
+            try:
+                action = int(await ainput("> ")) - 1
+            except ValueError:
+                print("Unexpected input, try again...")
+                continue
 
             # Perform requested action
             try:

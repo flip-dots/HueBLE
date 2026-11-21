@@ -4,19 +4,52 @@
 
 """
 
-from dataclasses import dataclass
-from typing import Callable, Union
-
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 from unittest import mock
 
 from bleak import BleakClient
 
+from HueBLE.const import (
+    UUID_BRIGHTNESS,
+    UUID_EFFECTS,
+    UUID_FW_VERSION,
+    UUID_HUE_IDENTIFIER,
+    UUID_MANUFACTURER,
+    UUID_MODEL,
+    UUID_NAME,
+    UUID_POWER,
+    UUID_TEMPERATURE,
+    UUID_XY_COLOUR,
+    UUID_ZIGBEE_ADDRESS,
+)
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def mock_get_services_fn(value: str) -> dict[str, str] | None:
+
+    return (
+        {"fake_service": "fake_value"}
+        if value
+        in [
+            UUID_BRIGHTNESS,
+            UUID_EFFECTS,
+            UUID_FW_VERSION,
+            UUID_HUE_IDENTIFIER,
+            UUID_MANUFACTURER,
+            UUID_MODEL,
+            UUID_NAME,
+            UUID_POWER,
+            UUID_TEMPERATURE,
+            UUID_XY_COLOUR,
+            UUID_ZIGBEE_ADDRESS,
+        ]
+        else None
+    )
 
 
 @dataclass
@@ -32,7 +65,7 @@ class ReadRequest:
     The expected UUID of the request.
     """
 
-    response: Union[bytes, None]
+    response: bytes | None
     """
     The bytes (if any) that should be returned in response to a matching request.
     """
@@ -102,10 +135,10 @@ class MockDevice:
 
         # This is the function we are patching so instead of an actual
         # bleak client its getting our mocked one
-        self._patcher = mock.patch("HueBLE.establish_connection")
+        self._patcher = mock.patch("HueBLE.light.establish_connection")
 
         # List of assertions (requests and responses) we expect to be made
-        self._assertions: list[Union[ReadRequest, WriteRequest]] = []
+        self._assertions: list[ReadRequest | WriteRequest] = []
 
         # The most freshly created mock bleak client
         self._current_mock_bleak_client = None
@@ -246,7 +279,7 @@ class MockDevice:
             for callback in dc_callbacks:
                 callback(bleak_client)
 
-    def expect_ordered_read(self, uuid: str, response: Union[bytes, None]):
+    def expect_ordered_read(self, uuid: str, response: bytes | None):
         """
         Expect an ordered read request to be made to the mock device with
         the specified UUID and optionally return bytes.
@@ -260,7 +293,7 @@ class MockDevice:
         self._assertions.append(ReadRequest(uuid, response, False))
 
     def expect_ordered_write(
-        self, uuid: bytes, value: bytes, responses: Union[dict[str, bytes], None] = None
+        self, uuid: str, value: bytes, responses: dict[str, bytes] | None = None
     ):
         """
         Expect an ordered write request to be made to the mock device with
@@ -277,7 +310,7 @@ class MockDevice:
         :param value: Expected bytes in write request.
         :param responses: Optional mapping of UUID and bytes responses.
         """
-        self._assertions.append(WriteRequest(uuid, value, responses, False))
+        self._assertions.append(WriteRequest(uuid, value, responses or {}, False))
 
     async def start_notify(self, uuid: bytes, callback: Callable):
         """
@@ -332,26 +365,33 @@ class MockDevice:
         _LOGGER.debug(
             f"Mock device has received write request at: '{char_specifier}' with data: '{data.hex()}'"
         )
+        error_preamble = f"Received an unexpected write request to: '{char_specifier}' with data: '{data.hex()}'. Expected request {self._position+1}/{len(self._assertions)}'"
+
+        def get_request() -> WriteRequest:
+            try:
+                item = self._assertions[self._position]
+                if type(item) is not WriteRequest:
+                    print(self._assertions)
+                    raise AssertionError(
+                        f"{error_preamble} to be a write request but it was '{item}' of type '{type(item)}'.",
+                    )
+                return item
+            except IndexError:
+                print(self._assertions)
+                raise AssertionError(f"{error_preamble} to not be made but it was.")
 
         # Find the request/response for this write
-        request = None
-        try:
-            request = self._assertions[self._position]
-        except IndexError:
-            print(self._assertions)
-            assert (
-                False
-            ), f"Received an unexpected request to: '{char_specifier}' with data: '{data.hex()}'. Number: {self._position+1}, Num expected: {len(self._assertions)}"
+        request = get_request()
 
         # Assert the UUID matches
         assert (
             request.uuid == char_specifier
-        ), f"Expected UUID '{request.uuid}' but got '{char_specifier}'!"
+        ), f"{error_preamble} to have the UUID '{request.uuid}' but it was '{char_specifier}'!"
 
         # Assert the bytes matches
         assert (
             request.expected == data
-        ), f"Expected bytes {request.expected.hex()}' but got '{data.hex()}'!"
+        ), f"{error_preamble} to have bytes {request.expected.hex()}' but it was '{data.hex()}'!"
 
         # Increment position
         self._position = self._position + 1
@@ -381,30 +421,42 @@ class MockDevice:
         _LOGGER.debug(
             f"Mock device has received request for data at: '{char_specifier}'"
         )
+        error_preamble = f"Received an unexpected read request of '{char_specifier}'. Expected request {self._position+1}/{len(self._assertions)}'"
 
-        # Find the request/response for this read
-        request_response = None
-        try:
-            request_response = self._assertions[self._position]
-        except IndexError:
-            print(self._assertions)
-            assert (
-                False
-            ), f"Received an unexpected read request '{char_specifier}'. Number: {self._position+1}, Num expected: {len(self._assertions)}"
+        def get_request() -> ReadRequest:
+            try:
+                item = self._assertions[self._position]
+                if type(item) is not ReadRequest:
+                    print(self._assertions)
+                    raise AssertionError(
+                        f"{error_preamble} to be a read request but it was '{item}' of type '{type(item)}'.",
+                    )
+                return item
+            except IndexError:
+                print(self._assertions)
+                raise AssertionError(f"{error_preamble} to not be made but it was.")
+
+        # Find the request/response for this write
+        request = get_request()
 
         # Assert the UUID matches
         assert (
-            request_response.uuid == char_specifier
-        ), f"Expected UUID '{request_response.uuid}' but got '{char_specifier}'!"
+            request.uuid == char_specifier
+        ), f"{error_preamble} to have the UUID '{request.uuid}' but it was '{char_specifier}'!"
 
         # Increment position
         self._position = self._position + 1
-        request_response.called = True
+        request.called = True
 
         # Wait a little
         await asyncio.sleep(0.1)
 
-        return request_response.response
+        if request.response is None:
+            raise AssertionError(
+                f"{error_preamble} to define a response value but none was defined by the test!"
+            )
+
+        return request.response
 
     def check_assertions(self):
         """
