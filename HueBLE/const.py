@@ -49,9 +49,6 @@ MIN_MIREDS = 153
 #: Constant as it us unknown if/where the light exposes this data.
 MAX_MIREDS = 500
 
-#: Default string of light metadata light address, model, and firmware.
-DEFAULT_METADATA_STRING = "Unknown"
-
 #: Default max connection attempts in the connect function.
 DEFAULT_CONNECTION_ATTEMPTS_MAX = 3
 
