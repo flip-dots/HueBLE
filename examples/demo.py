@@ -80,7 +80,11 @@ async def main():
                 "9. Exit"
             )
 
-            action = int(await ainput("> ")) - 1
+            try:
+                action = int(await ainput("> ")) - 1
+            except ValueError:
+                print("Unexpected input, try again...")
+                continue
 
             # Perform requested action
             try:
