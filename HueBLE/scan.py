@@ -13,7 +13,7 @@ from HueBLE.const import DEFAULT_DISCOVER_TIME, UUID_HUE_IDENTIFIER
 
 
 async def discover_lights(
-    scanner: BleakScanner | None = None, timeout: int = DEFAULT_DISCOVER_TIME
+    scanner: type[BleakScanner] | None = None, timeout: int = DEFAULT_DISCOVER_TIME
 ) -> list[BLEDevice]:
     """Scanning feature
     Scans the BLE neighborhood for Hue BLE light(s) and returns
@@ -31,7 +31,7 @@ async def discover_lights(
             devices.append(device)
 
     # Scan for timeout seconds
-    async with scanner or BleakScanner(callback):
+    async with (scanner or BleakScanner)(callback):
         await asyncio.sleep(timeout)
 
     # Return what we found
