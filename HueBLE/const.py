@@ -1,4 +1,7 @@
-"""Constants for HueBLE module.
+# Copyright (c) 2026 Harvey Lelliott
+# SPDX-License-Identifier: MIT
+"""
+Constants for HueBLE module.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 

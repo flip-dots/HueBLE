@@ -1,4 +1,7 @@
-"""Tests for HueBLE.
+# Copyright (c) 2026 Harvey Lelliott
+# SPDX-License-Identifier: MIT
+"""
+Tests for HueBLE.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 
@@ -16,14 +19,22 @@ from bleak.exc import BleakError
 
 import HueBLE
 from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
-from HueBLE.exceptions import TimeoutError
+from HueBLE.exceptions import ConnectionError, TimeoutError  # noqa: A004
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "supported_uuids, command_uuid, command_bytes, responses, function, args, expected_props",
+    (
+        "supported_uuids",
+        "command_uuid",
+        "command_bytes",
+        "responses",
+        "function",
+        "args",
+        "expected_props",
+    ),
     [
         pytest.param(
             [HueBLE.const.UUID_POWER],
@@ -94,8 +105,10 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)),
             {
                 HueBLE.const.UUID_XY_COLOUR: pack(
-                    "<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)
-                )
+                    "<HH",
+                    int(0.7 * 0xFFFF),
+                    int(0.5 * 0xFFFF),
+                ),
             },
             "set_colour_xy",
             [0.7, 0.5],
@@ -111,8 +124,10 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             pack("<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)),
             {
                 HueBLE.const.UUID_XY_COLOUR: pack(
-                    "<HH", int(0.7 * 0xFFFF), int(0.5 * 0xFFFF)
-                )
+                    "<HH",
+                    int(0.7 * 0xFFFF),
+                    int(0.5 * 0xFFFF),
+                ),
             },
             "set_colour_xy",
             [0.7, 0.5],
@@ -129,7 +144,9 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             {
                 HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("5E01"),
                 HueBLE.const.UUID_XY_COLOUR: pack(
-                    "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
+                    "<HH",
+                    int(0.0 * 0xFFFF),
+                    int(0.0 * 0xFFFF),
                 ),
             },
             "set_colour_temp",
@@ -148,7 +165,9 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             {
                 HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("5E01"),
                 HueBLE.const.UUID_XY_COLOUR: pack(
-                    "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
+                    "<HH",
+                    int(0.0 * 0xFFFF),
+                    int(0.0 * 0xFFFF),
                 ),
             },
             "set_colour_temp",
@@ -171,7 +190,7 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             bytes.fromhex("01010102015004049bc54f3606010108015e"),
             {
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102015004049bc54f3606010108015e"
+                    "01010102015004049bc54f3606010108015e",
                 ),
             },
             "set_colour_effect",
@@ -194,7 +213,7 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             bytes.fromhex("01010102015003022c0106010108015e"),
             {
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102015003022c0106010108015e"
+                    "01010102015003022c0106010108015e",
                 ),
             },
             "set_temperature_effect",
@@ -216,7 +235,7 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
             bytes.fromhex("01010102015003022c0106010108015e"),
             {
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102015003022c0106010108015e"
+                    "01010102015003022c0106010108015e",
                 ),
             },
             "set_temperature_effect",
@@ -230,7 +249,7 @@ from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
         ),
     ],
 )
-async def test_commands(
+async def test_commands(  # noqa: PLR0913, PLR0917
     supported_uuids: list[str],
     command_uuid: str,
     command_bytes: bytes,
@@ -238,8 +257,10 @@ async def test_commands(
     function: str,
     args: list[Any],
     expected_props: dict[str, Any],
-):
+) -> None:
     """
+    Test device commands.
+
     Test connecting and sending commands to the light and assert that
     a notification sent in response to a command results in the value
     being updated.
@@ -251,7 +272,7 @@ async def test_commands(
     :param function: The name of the function of HueBleLight that should be called.
     :param args: The arguments that should be given to the HueBleLight function being called.
     :param expected_props: Map of properties (e.g brightness, xy_colour) to expected value after update.
-    """
+    """  # noqa: E501
 
     device = HueBLE.HueBleLight(MOCK_BLE_DEVICE)
 
@@ -283,12 +304,12 @@ async def test_commands(
             prop = getattr(device, key)
             assert (
                 prop == value
-            ), f"Light state '{key}' is not expected value after command! Expected '{value}' but got '{prop}'!"
+            ), f"Light state '{key}' is not expected value after command! Expected '{value}' but got '{prop}'!"  # noqa: E501
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "requests, expected_props",
+    ("requests", "expected_props"),
     [
         pytest.param(
             {},
@@ -419,7 +440,9 @@ async def test_commands(
                 HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("36"),
                 HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("9900"),
                 HueBLE.const.UUID_XY_COLOUR: pack(
-                    "<HH", int(0.0 * 0xFFFF), int(0.0 * 0xFFFF)
+                    "<HH",
+                    int(0.0 * 0xFFFF),
+                    int(0.0 * 0xFFFF),
                 ),
             },
             {
@@ -444,7 +467,7 @@ async def test_commands(
                 HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
                 HueBLE.const.UUID_NAME: b"Tea light",
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102015004046666ff7f06010108015e"
+                    "01010102015004046666ff7f06010108015e",
                 ),
             },
             {
@@ -469,7 +492,7 @@ async def test_commands(
                 HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
                 HueBLE.const.UUID_NAME: b"Tea light",
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102015003022c0106010108015e"
+                    "01010102015003022c0106010108015e",
                 ),
             },
             {
@@ -494,7 +517,7 @@ async def test_commands(
                 HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("00010203040506070809"),
                 HueBLE.const.UUID_NAME: b"L A M P",
                 HueBLE.const.UUID_EFFECTS: bytes.fromhex(
-                    "01010102014503022c01060115080138"
+                    "01010102014503022c01060115080138",
                 ),
             },
             {
@@ -536,8 +559,10 @@ async def test_commands(
 async def test_poll_state(
     requests: dict[str, bytes],
     expected_props: dict[str, Any],
-):
+) -> None:
     """
+    Test polling device state.
+
     Test polling all supported values from a device with
     different supported parameters.
 
@@ -549,7 +574,7 @@ async def test_poll_state(
 
         def mock_get_characteristic(uuid: str) -> bytes | None:
             """
-            Mocked client.services.get_characteristic for BleakClient.
+            Mock :func:`~bleak.BleakClient.services.get_characteristic`.
 
             If the UUID is in the requests dict (its expected) then we set it
             to 00, i.e is supported, else its None, meaning that UUID is not
@@ -557,8 +582,7 @@ async def test_poll_state(
             """
             if uuid in requests:
                 return bytes.fromhex("00")
-            else:
-                return None
+            return None
 
         mock_bluetooth.set_side_effects(services_side_effect=mock_get_characteristic)
 
@@ -566,8 +590,8 @@ async def test_poll_state(
 
         callback_count = 0
 
-        def my_callback(*args, **kwargs):
-            """We expect this to be called twice."""
+        def my_callback(*args: dict, **kwargs: dict) -> None:  # noqa: ARG001
+            """Expect to be called twice."""
             nonlocal callback_count
             callback_count = callback_count + 1
 
@@ -601,11 +625,11 @@ async def test_poll_state(
             prop = getattr(device, key)
             assert (
                 prop == value
-            ), f"Light state '{key}' is not expected value after command! Expected '{value!r}' but got '{prop}'!"
+            ), f"Light state '{key}' is not expected value after command! Expected '{value!r}' but got '{prop}'!"  # noqa: E501
 
 
 @pytest.mark.asyncio
-async def test_automatic_retry():
+async def test_automatic_retry() -> None:
     """
     Test the automatic retrying of a lost connection.
 
@@ -623,7 +647,7 @@ async def test_automatic_retry():
 
         callback_count = 0
 
-        def my_callback(*args, **kwargs):
+        def my_callback(*args: dict, **kwargs: dict) -> None:  # noqa: ARG001
             """We expect this to be called three times."""
             nonlocal callback_count
             callback_count = callback_count + 1
@@ -642,7 +666,9 @@ async def test_automatic_retry():
         await asyncio.sleep(0.5)
         assert not device.connected, "Expected connected to be False"
         assert not device.available, "Expected available to return False"
-        assert callback_count == 2, "Expected callback to be run on disconnection!"
+        assert (
+            callback_count == 2  # noqa: PLR2004
+        ), "Expected callback to be run on disconnection!"
 
         # Set .is_connected to True
         mock_bluetooth.allow_connect()
@@ -650,17 +676,24 @@ async def test_automatic_retry():
         # We expect to have been automatically reconnected
         async with asyncio.timeout(20):
 
-            while not device.connected or callback_count != 3:
+            while (  # noqa: ASYNC110
+                not device.connected
+                or callback_count != 3  # noqa: ASYNC110, PLR2004, RUF100
+            ):
                 await asyncio.sleep(1)
 
         assert device.connected, "Expected connected to be True"
         assert device.available, "Expected available to be True"
-        assert callback_count == 3, "Expected callback to be run on reconnection!"
+        assert (
+            callback_count == 3  # noqa: PLR2004
+        ), "Expected callback to be run on reconnection!"
 
 
 @pytest.mark.asyncio
-async def test_disconnect():
+async def test_disconnect() -> None:
     """
+    Test disconnection.
+
     Test the mock device is disconnected and no automatic
     reconnection attempts are executed when disconnect is called.
 
@@ -678,9 +711,9 @@ async def test_disconnect():
         assert device.connected, "Expected connected to be True"
         assert device.available, "Expected available to be True"
 
-        def my_callback(*args, **kwargs):
+        def my_callback(*args: dict, **kwargs: dict) -> None:  # noqa: ARG001
             """We expect this to never be called."""
-            assert False
+            assert False  # noqa: B011, PT015
 
         device.add_callback_on_state_changed(my_callback)
 
@@ -695,7 +728,7 @@ async def test_disconnect():
             assert not device.available, "Expected available to be False"
 
             # Assert that disconnect was called
-            mock_bluetooth._current_mock_bleak_client.disconnect.assert_called()
+            mock_bluetooth._current_mock_bleak_client.disconnect.assert_called()  # noqa: SLF001
 
             # Assert we are still disconnected
             await asyncio.sleep(100)
@@ -719,7 +752,7 @@ async def test_disconnect():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "platform, properties, value",
+    ("platform", "properties", "value"),
     [
         pytest.param(
             "Windows",
@@ -766,9 +799,13 @@ async def test_disconnect():
     ],
 )
 async def test_authenticated(
-    platform: str, properties: bool | None, value: bool | None
-):
+    platform: str,
+    properties: bool | None,  # noqa: FBT001
+    value: bool | None,  # noqa: FBT001
+) -> None:
     """
+    Test :func:`~HueBLE.HueBleLight.authenticated`.
+
     Test the authenticated property by mocking different platforms and
     connection properties.
 
@@ -788,7 +825,17 @@ async def test_authenticated(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "establish_side_effect, connected_side_effect, pair_side_effect, authenticated_side_effect, services_side_effect, subscribe_side_effect, connection_lock_side_effect, error, error_messages",
+    (
+        "establish_side_effect",
+        "connected_side_effect",
+        "pair_side_effect",
+        "authenticated_side_effect",
+        "services_side_effect",
+        "subscribe_side_effect",
+        "connection_lock_side_effect",
+        "error",
+        "error_messages",
+    ),
     [
         pytest.param(
             None,
@@ -800,9 +847,8 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
-                "Failed to make an initial connection to the light",
-                "Not connected to ",
+                "Exception connecting to device",
+                "Failed to make an initial connection to the device",
             ],
             id="is_connected_false",
         ),
@@ -816,8 +862,8 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
-                "Failed to make an initial connection to the light",
+                "Exception connecting to device",
+                "Failed to make an initial connection to the device",
                 "Generic exception raised by establish_connection",
             ],
             id="establish_connection_exception",
@@ -832,7 +878,7 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
+                "Exception connecting to device",
                 "Timed out attempting to connect to",
             ],
             id="establish_connection_timeout",
@@ -847,7 +893,7 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
+                "Exception connecting to device",
                 "Timed out attempting to pair",
             ],
             id="pair_timeout",
@@ -862,8 +908,8 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
-                "Error from Bluetooth backend when attempting to pair",
+                "Exception connecting to device",
+                "Error from BLE backend pairing to",
                 "Generic pairing error!",
             ],
             id="pair_bleak_exception",
@@ -878,7 +924,7 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
+                "Exception connecting to device",
                 "Failed to determine what services",
                 "NOPE BAD SERVICE",
             ],
@@ -894,7 +940,7 @@ async def test_authenticated(
             None,
             ConnectionError,
             [
-                "Exception connecting to light",
+                "Exception connecting to device",
                 "Failed to subscribe to services offered",
                 "NOPE BAD SUBSCRIPTION",
             ],
@@ -916,18 +962,18 @@ async def test_authenticated(
         ),
     ],
 )
-async def test_connect_errors(
-    fast_timeouts,
-    establish_side_effect: Any,
-    connected_side_effect: Any,
-    pair_side_effect: Any,
-    authenticated_side_effect: Any,
-    services_side_effect: Any,
-    subscribe_side_effect: Any,
-    connection_lock_side_effect: Any,
+async def test_connect_errors(  # noqa: PLR0913, PLR0917
+    fast_timeouts,  # noqa: ANN001, ARG001
+    establish_side_effect: Any,  # noqa: ANN401
+    connected_side_effect: Any,  # noqa: ANN401
+    pair_side_effect: Any,  # noqa: ANN401
+    authenticated_side_effect: Any,  # noqa: ANN401
+    services_side_effect: Any,  # noqa: ANN401
+    subscribe_side_effect: Any,  # noqa: ANN401
+    connection_lock_side_effect: Any,  # noqa: ANN401
     error: type[Exception],
     error_messages: list[str],
-):
+) -> None:
     """
     Test the error raising of the connect function of a light.
 
@@ -940,7 +986,7 @@ async def test_connect_errors(
     :param connection_lock_side_effect: Side effect of entering context of self._connection_lock.
     :param error: Expected exception to be raised inside connect.
     :param error_messages: Expected error messages inside exception message.
-    """
+    """  # noqa: E501
 
     mock_device = MockDevice()
 
@@ -973,9 +1019,9 @@ async def test_connect_errors(
 
             # Patch connection lock for connection lock timeout test
             if connection_lock_side_effect is not None:
-                device._connection_lock = mock.MagicMock()
-                device._connection_lock.__aenter__ = mock.AsyncMock(
-                    side_effect=connection_lock_side_effect
+                device._connection_lock = mock.MagicMock()  # noqa: SLF001
+                device._connection_lock.__aenter__ = mock.AsyncMock(  # noqa: SLF001
+                    side_effect=connection_lock_side_effect,
                 )
 
             # Expect error to be raised
@@ -984,14 +1030,16 @@ async def test_connect_errors(
 
             # Expect error log messages to be present
             traceback_message = "".join(
-                traceback.format_exception(e.type, e.value, e.tb)
+                traceback.format_exception(e.type, e.value, e.tb),
             )
             for error_message in error_messages:
-                assert error_message in traceback_message
+                assert (
+                    error_message in traceback_message
+                ), f"Failed to find '{error_message}' inside '{traceback_message}'!"
 
 
 @pytest.mark.parametrize(
-    "args, expected",
+    ("args", "expected"),
     [
         pytest.param(
             {
@@ -1068,7 +1116,7 @@ async def test_connect_errors(
         ),
     ],
 )
-def test_tlv_build(args: list[dict[str, Any] | None], expected: str):
+def test_tlv_build(args: list[dict[str, Any] | None], expected: str) -> None:
     """Test that a TLV packet built with the arguments matches what we expect."""
     packet = TLV_EFFECT.build(args)
     assert packet.hex() == expected, "Expected built packet to match bytes"

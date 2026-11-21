@@ -1,8 +1,13 @@
-"""Data constructs for HueBLE module.
+# Copyright (c) 2026 Harvey Lelliott
+# SPDX-License-Identifier: MIT
+"""
+Data constructs for HueBLE module.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 
 """
+
+from __future__ import annotations
 
 import logging
 from enum import IntEnum
@@ -49,9 +54,10 @@ class EffectType(IntEnum):
     ENCHANT = 17
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: object) -> EffectType:
+        """Return default value when effect unknown.."""
         _LOGGER.warning(
-            f"Unknown effect type: '{value}' reported by light, using default of none!"
+            f"Unknown effect type: '{value}' reported by light, using default of none!",
         )
         return cls.NONE
 
@@ -75,7 +81,7 @@ class TLVListContainer(ListContainer):
     Container of TLV values to allow for dictionary-like access.
     """
 
-    def get(self, key: TLVTag) -> Any | None:
+    def get(self, key: TLVTag) -> Any | None:  # noqa: ANN401
         """Return the value of the TLV tag or None if not present."""
         for item in self:
             if int(item.tag) == key.value:
@@ -99,28 +105,29 @@ TLV_EFFECT = ExprAdapter(
                         TLVTag.COLOUR_TEMP: Int16ul,
                         TLVTag.COLOUR_XY: ExprAdapter(
                             Struct("x" / Int16ul, "y" / Int16ul),
-                            decoder=lambda c, ctx: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
-                            encoder=lambda v, ctx: Container(
-                                x=int(v[0] * 0xFFFF), y=int(v[1] * 0xFFFF)
+                            decoder=lambda c, _: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
+                            encoder=lambda v, _: Container(
+                                x=int(v[0] * 0xFFFF),
+                                y=int(v[1] * 0xFFFF),
                             ),
                         ),
                         TLVTag.TRANSITION: Int16ul,
                         TLVTag.EFFECT_TYPE: ExprAdapter(
                             Int8ul,
-                            decoder=lambda val, ctx: EffectType(val),
-                            encoder=lambda obj, ctx: int(obj),
+                            decoder=lambda val, _: EffectType(val),
+                            encoder=lambda obj, _: int(obj),
                         ),
                         TLVTag.EFFECT_SPEED: Int8ul,
                         Default: Struct("Unknown" / GreedyBytes),
                     },
                 ),
             ),
-        )
+        ),
     ),
     # Wrap the parsed list in custom container for tag lookup and debug logging
-    decoder=lambda obj, ctx: TLVListContainer(obj),
+    decoder=lambda obj, _: TLVListContainer(obj),
     # Use encoder to allow for building messages flat
-    encoder=lambda obj, ctx: (
+    encoder=lambda obj, _: (
         [{"tag": k, "value": v} for k, v in sorted(obj.items())]
         if isinstance(obj, dict)
         else obj

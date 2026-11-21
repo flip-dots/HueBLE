@@ -1,4 +1,7 @@
-"""Constants for tests for HueBLE.
+# Copyright (c) 2026 Harvey Lelliott
+# SPDX-License-Identifier: MIT
+"""
+Constants for tests for HueBLE.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 
