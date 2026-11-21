@@ -30,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class EffectType(IntEnum):
+    """
+    The effects supported by Hue lights.
+    """
+
     NONE = 0
     CANDLE = 1
     FIREPLACE = 2
@@ -53,6 +57,10 @@ class EffectType(IntEnum):
 
 
 class TLVTag(IntEnum):
+    """
+    The TLV tag in Hue effect API messages which specifies what data the value contains.
+    """
+
     ON_OFF = 1
     BRIGHTNESS = 2
     COLOUR_TEMP = 3
@@ -63,14 +71,19 @@ class TLVTag(IntEnum):
 
 
 class TLVListContainer(ListContainer):
+    """
+    Container of TLV values to allow for dictionary-like access.
+    """
 
     def get(self, key: TLVTag) -> Any | None:
+        """Return the value of the TLV tag or None if not present."""
         for item in self:
             if int(item.tag) == key.value:
                 return item.value
         return None
 
 
+"""The TLV construct for effect API messages made up of a list of TLVs."""
 TLV_EFFECT = ExprAdapter(
     GreedyRange(
         Struct(
@@ -106,7 +119,7 @@ TLV_EFFECT = ExprAdapter(
     ),
     # Wrap the parsed list in custom container for tag lookup and debug logging
     decoder=lambda obj, ctx: TLVListContainer(obj),
-    # Use encoder to allow for building flat
+    # Use encoder to allow for building messages flat
     encoder=lambda obj, ctx: (
         [{"tag": k, "value": v} for k, v in sorted(obj.items())]
         if isinstance(obj, dict)
