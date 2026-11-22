@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.4.1`_ (2026-11-22)
+=====================
+
+Fixed
+-----
+
+* Fixed distribution issue which resulted in builds not including necessary modules.
+
+
 `2.4.0`_ (2026-11-22)
 =====================
 
@@ -282,6 +291,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.4.1: https://github.com/flip-dots/HueBLE/releases/tag/v2.4.1
 .. _2.4.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.4.0
 .. _2.3.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.3.0
 .. _2.2.4: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.4
