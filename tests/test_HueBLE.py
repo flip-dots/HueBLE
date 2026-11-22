@@ -18,7 +18,7 @@ from bleak import BLEDevice
 from bleak.exc import BleakError
 
 import HueBLE
-from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
+from HueBLE.constructs import TLV_EFFECT, EffectTLVTag, EffectType
 from HueBLE.exceptions import ConnectionError, TimeoutError  # noqa: A004
 from tests import MOCK_BLE_DEVICE, MOCK_DEVICE_ADDRESS, MOCK_DEVICE_NAME
 from tests.helpers import MockDevice, mock_get_services_fn, sleep_side_effect
@@ -554,6 +554,53 @@ async def test_commands(  # noqa: PLR0913, PLR0917
             },
             id="effect_onoff_only",
         ),
+        # This is a capture of from a real light which includes the capability value.
+        # The meaning of the other capability values is unknown.
+        pytest.param(
+            {
+                HueBLE.const.UUID_MANUFACTURER: b"Signify Netherlands B.V",
+                HueBLE.const.UUID_MODEL: b"LCA006",
+                HueBLE.const.UUID_FW_VERSION: b"1.145.1",
+                HueBLE.const.UUID_ZIGBEE_ADDRESS: bytes.fromhex("f42e7f0c01881700"),
+                HueBLE.const.UUID_NAME: b"Desk Right",
+                HueBLE.const.UUID_CAPABILITY: bytes.fromhex(
+                    "000103010299000202f4010302070004080efe03000000000006020100",
+                ),
+                HueBLE.const.UUID_POWER: bytes.fromhex("01"),
+                HueBLE.const.UUID_BRIGHTNESS: bytes.fromhex("ff"),
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("3001"),
+            },
+            {
+                "manufacturer": "Signify Netherlands B.V",
+                "model": "LCA006",
+                "firmware": "1.145.1",
+                "zigbee_address": "f4:2e:7f:0c:01:88:17:00",
+                "name_in_app": "Desk Right",
+                "power_state": True,
+                "brightness": 255,
+                "colour_temp": 304,
+                "minimum_mireds": HueBLE.const.MIN_MIREDS,
+                "maximum_mireds": HueBLE.const.MAX_MIREDS,
+                "colour_temp_mode": True,
+                "colour_xy": None,
+            },
+            id="colour_temperature_with_capability_api",
+        ),
+        # This is a cut down version of the UUID capability to make sure that
+        # colour temperature capabilities are set correctly.
+        pytest.param(
+            {
+                HueBLE.const.UUID_CAPABILITY: bytes.fromhex(
+                    "010264000202e803",
+                ),
+                HueBLE.const.UUID_TEMPERATURE: bytes.fromhex("3001"),
+            },
+            {
+                "minimum_mireds": 100,
+                "maximum_mireds": 1000,
+            },
+            id="wider_colour_temperature_range",
+        ),
     ],
 )
 async def test_poll_state(
@@ -1043,73 +1090,73 @@ async def test_connect_errors(  # noqa: PLR0913, PLR0917
     [
         pytest.param(
             {
-                TLVTag.ON_OFF: True,
+                EffectTLVTag.ON_OFF: True,
             },
             "010101",
             id="power_on",
         ),
         pytest.param(
             {
-                TLVTag.ON_OFF: False,
+                EffectTLVTag.ON_OFF: False,
             },
             "010100",
             id="power_off",
         ),
         pytest.param(
             {
-                TLVTag.ON_OFF: False,
-                TLVTag.BRIGHTNESS: 100,
+                EffectTLVTag.ON_OFF: False,
+                EffectTLVTag.BRIGHTNESS: 100,
             },
             "010100020164",
             id="power_off_and_brightness",
         ),
         pytest.param(
             {
-                TLVTag.BRIGHTNESS: 100,
-                TLVTag.ON_OFF: False,
+                EffectTLVTag.BRIGHTNESS: 100,
+                EffectTLVTag.ON_OFF: False,
             },
             "010100020164",
             id="power_off_and_brightness_reversed",
         ),
         pytest.param(
-            {TLVTag.COLOUR_TEMP: 100},
+            {EffectTLVTag.COLOUR_TEMP: 100},
             "03026400",
             id="colour_temp",
         ),
         pytest.param(
-            {TLVTag.COLOUR_XY: (0.5, 0.5)},
+            {EffectTLVTag.COLOUR_XY: (0.5, 0.5)},
             "0404ff7fff7f",
             id="colour_xy",
         ),
         pytest.param(
-            {TLVTag.ON_OFF: False, TLVTag.TRANSITION: 100},
+            {EffectTLVTag.ON_OFF: False, EffectTLVTag.TRANSITION: 100},
             "01010005026400",
             id="power_off_with_transition",
         ),
         pytest.param(
             {
-                TLVTag.COLOUR_TEMP: 500,
-                TLVTag.EFFECT_TYPE: EffectType.CANDLE,
-                TLVTag.EFFECT_SPEED: 100,
+                EffectTLVTag.COLOUR_TEMP: 500,
+                EffectTLVTag.EFFECT_TYPE: EffectType.CANDLE,
+                EffectTLVTag.EFFECT_SPEED: 100,
             },
             "0302f401060101080164",
             id="colour_temp_with_effect",
         ),
         pytest.param(
             {
-                TLVTag.COLOUR_XY: (0.3, 0.3),
-                TLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
-                TLVTag.EFFECT_SPEED: 150,
+                EffectTLVTag.COLOUR_XY: (0.3, 0.3),
+                EffectTLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
+                EffectTLVTag.EFFECT_SPEED: 150,
             },
             "0404cc4ccc4c060102080196",
             id="colour_xy_with_effect",
         ),
         pytest.param(
             {
-                TLVTag.COLOUR_XY: (0.3, 0.3),
-                TLVTag.TRANSITION: 1000,
-                TLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
-                TLVTag.EFFECT_SPEED: 150,
+                EffectTLVTag.COLOUR_XY: (0.3, 0.3),
+                EffectTLVTag.TRANSITION: 1000,
+                EffectTLVTag.EFFECT_TYPE: EffectType.FIREPLACE,
+                EffectTLVTag.EFFECT_SPEED: 150,
             },
             "0404cc4ccc4c0502e803060102080196",
             id="colour_xy_with_transition_and_effect",

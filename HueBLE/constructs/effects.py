@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Harvey Lelliott
 # SPDX-License-Identifier: MIT
 """
-Data constructs for HueBLE module.
+Effect data constructs for HueBLE module.
 
 .. moduleauthor:: Harvey Lelliott (flip-dots) <harveylelliott@duck.com>
 
@@ -11,18 +11,15 @@ from __future__ import annotations
 
 import logging
 from enum import IntEnum
-from typing import Any
 
 from construct import (
     Container,
-    Default,
     ExprAdapter,
     Flag,
     GreedyBytes,
     GreedyRange,
     Int8ul,
     Int16ul,
-    ListContainer,
     Prefixed,
     Struct,
     Switch,
@@ -30,6 +27,8 @@ from construct import (
 from construct import (
     Enum as ConstructEnum,
 )
+
+from .common import TLVListContainer
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ class EffectType(IntEnum):
         return cls.NONE
 
 
-class TLVTag(IntEnum):
+class EffectTLVTag(IntEnum):
     """
     The TLV tag in Hue effect API messages which specifies what data the value contains.
     """
@@ -76,34 +75,21 @@ class TLVTag(IntEnum):
     EFFECT_SPEED = 8
 
 
-class TLVListContainer(ListContainer):
-    """
-    Container of TLV values to allow for dictionary-like access.
-    """
-
-    def get(self, key: TLVTag) -> Any | None:  # noqa: ANN401
-        """Return the value of the TLV tag or None if not present."""
-        for item in self:
-            if int(item.tag) == key.value:
-                return item.value
-        return None
-
-
 """The TLV construct for effect API messages made up of a list of TLVs."""
 TLV_EFFECT = ExprAdapter(
     GreedyRange(
         Struct(
-            "tag" / ConstructEnum(Int8ul, TLVTag),
+            "tag" / ConstructEnum(Int8ul, EffectTLVTag),
             "value"
             / Prefixed(
                 Int8ul,
                 Switch(
                     lambda ctx: int(ctx.tag),
                     {
-                        TLVTag.ON_OFF: Flag,
-                        TLVTag.BRIGHTNESS: Int8ul,
-                        TLVTag.COLOUR_TEMP: Int16ul,
-                        TLVTag.COLOUR_XY: ExprAdapter(
+                        EffectTLVTag.ON_OFF: Flag,
+                        EffectTLVTag.BRIGHTNESS: Int8ul,
+                        EffectTLVTag.COLOUR_TEMP: Int16ul,
+                        EffectTLVTag.COLOUR_XY: ExprAdapter(
                             Struct("x" / Int16ul, "y" / Int16ul),
                             decoder=lambda c, _: (c["x"] / 0xFFFF, c["y"] / 0xFFFF),
                             encoder=lambda v, _: Container(
@@ -111,15 +97,15 @@ TLV_EFFECT = ExprAdapter(
                                 y=int(v[1] * 0xFFFF),
                             ),
                         ),
-                        TLVTag.TRANSITION: Int16ul,
-                        TLVTag.EFFECT_TYPE: ExprAdapter(
+                        EffectTLVTag.TRANSITION: Int16ul,
+                        EffectTLVTag.EFFECT_TYPE: ExprAdapter(
                             Int8ul,
                             decoder=lambda val, _: EffectType(val),
                             encoder=lambda obj, _: int(obj),
                         ),
-                        TLVTag.EFFECT_SPEED: Int8ul,
-                        Default: Struct("Unknown" / GreedyBytes),
+                        EffectTLVTag.EFFECT_SPEED: Int8ul,
                     },
+                    default=GreedyBytes,
                 ),
             ),
         ),
