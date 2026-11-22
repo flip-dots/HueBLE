@@ -1974,7 +1974,7 @@ class HueBleLight:
         in case a BLE sensor is ever released.
 
         :returns bool: Bool of support status if known.
-        :returns None: If support status is unknown / not polled yet.
+        :returns None: If support status is unknown (not connected to device yet).
         """
         return self._supports_on_off
 
@@ -1986,7 +1986,7 @@ class HueBleLight:
         Devices such as the Hue smart plug do not support brightness.
 
         :returns bool: Bool of support status if known.
-        :returns None: If support status is unknown / not polled yet.
+        :returns None: If support status is unknown (not connected to device yet).
         """
         return self._supports_brightness
 
@@ -1999,7 +1999,7 @@ class HueBleLight:
         temperature adjustments.
 
         :returns bool: Bool of support status if known.
-        :returns None: If support status is unknown / not polled yet.
+        :returns None: If support status is unknown (not connected to device yet).
         """
         return self._supports_colour_temp
 
@@ -2012,7 +2012,7 @@ class HueBleLight:
         XY colour adjustments.
 
         :returns bool: Bool of support status if known.
-        :returns None: If support status is unknown / not polled yet.
+        :returns None: If support status is unknown (not connected to device yet).
         """
         return self._supports_colour_xy
 
@@ -2025,7 +2025,7 @@ class HueBleLight:
         do not support the effects API.
 
         :returns bool: Bool of support status if known.
-        :returns None: If support status is unknown / not polled yet.
+        :returns None: If support status is unknown (not connected to device yet).
         """
         return self._supports_effects
 
