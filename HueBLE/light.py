@@ -1677,7 +1677,7 @@ class HueBleLight:
         # it is unknown if we are authenticated to it
         if properties is None:
             _LOGGER.info(
-                f"Pairing status of '{self.name}'' unknown due to missing metadata",
+                f"Pairing status of '{self.name}' unknown due to missing metadata",
             )
             return None
 
