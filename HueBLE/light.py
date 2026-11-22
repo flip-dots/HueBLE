@@ -1847,7 +1847,7 @@ class HueBleLight:
             is (0.0, 0.0) or (1.0, 1.0).
 
         :returns int: Colour temperature of light in mireds.
-        :returns None: If state not polled/pushed yet or feature is not supported.
+        :returns None: If state not polled/pushed yet, is inactive, or not supported.
         """
         if self.supports_colour_temp:
             return self._colour_temp
@@ -1903,7 +1903,7 @@ class HueBleLight:
             Is (0.0, 0.0) or (1.0, 1.0) if XY colour mode is inactive.
 
         :returns tuple[float, float]: XY colour coordinates of light.
-        :returns None: If state not polled/pushed yet or feature is not supported.
+        :returns None: If state not polled/pushed yet, is inactive, or is not supported.
         """
         if self.supports_colour_xy:
             return self._colour_xy
