@@ -961,7 +961,11 @@ class HueBleLight:
                         await self.connect()
                     if self._client is None:
                         raise NotConnectedError  # noqa: TRY301
-                    return await self._client.read_gatt_char(address)
+                    value = await self._client.read_gatt_char(address)
+                    _LOGGER.debug(
+                        f"Successfully read '{value.hex()}' from '{self.name}'.",
+                    )
+                    return value
 
             except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
@@ -1262,8 +1266,6 @@ class HueBleLight:
         :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
         """
         data = await self._read_gatt(UUID_EFFECTS)
-
-        _LOGGER.debug(f"Effect bytes: {data.hex()}")
         tlv = TLV_EFFECT.parse(data)
         _LOGGER.debug(f"Parsed effect TLV: {tlv}")
 
@@ -1342,8 +1344,6 @@ class HueBleLight:
         :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
         """
         data = await self._read_gatt(UUID_CAPABILITY)
-
-        _LOGGER.debug(f"Capability bytes: {data.hex()}")
         tlv = TLV_CAPABILITY.parse(data)
         _LOGGER.debug(f"Parsed capability TLV: {tlv}")
 
