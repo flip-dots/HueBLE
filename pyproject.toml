@@ -28,7 +28,7 @@ classifiers = [
 ]
 
 [tool.setuptools]
-py-modules = ['HueBLE']
+packages = ["HueBLE"]
 
 [tool.ruff.lint]
 select = ["ALL"]
