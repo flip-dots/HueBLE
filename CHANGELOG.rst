@@ -7,6 +7,33 @@ All notable changes to this project will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`2.4.0`_ (2026-11-22)
+=====================
+
+Added
+-----
+
+* Added a new ``set_effect`` endpoint which allows for setting any value (e.g on/off, brightness, etc).
+* Added ``is_hue_ble_device`` to allow for easily filtering devices using a ``BLEDevice``.
+* The supported colour temperature range can now be polled from the device in ``poll_capability`` and  ``poll_state`` and will update ``minimum_mireds`` and ``maximum_mireds``.
+
+Changed
+-------
+
+* Upgraded the parsing and building of commands to use ``construct``.
+* Restructured the project to use a more sensible project structure (more than one file).
+* Improved documentation, including information about when effects and colour modes are active.
+* If the device supports the effects endpoint then the older endpoints will not be subscribed to, resulting in no duplicate state changed callbacks.
+* Re-wrote ``demo.py`` to use ``rich`` for console I/O.
+
+Fixed
+-----
+
+* Fixed an issue where effect notifications which were too short would fail to be parsed.
+* Fixed an issue which would cause ``demo.py`` to crash if a race condition occurred.
+* Fixed lint issues in the project (there were a lot :P).
+* Fixed ``discover_lights`` not using the provided scanner.
+
 
 `2.3.0`_ (2026-10-25)
 =====================
@@ -255,6 +282,7 @@ Fixed
 
 * HueBLE created.
 
+.. _2.4.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.4.0
 .. _2.3.0: https://github.com/flip-dots/HueBLE/releases/tag/v2.3.0
 .. _2.2.4: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.4
 .. _2.2.3: https://github.com/flip-dots/HueBLE/releases/tag/v2.2.3
