@@ -4,7 +4,7 @@ pytest-cov
 bleak
 bleak-retry-connector
 dbus-fast
-aioconsole
+rich
 construct-typing
 mypy
 ruff

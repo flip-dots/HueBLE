@@ -34,8 +34,11 @@ UUID_TEMPERATURE = "932c32bd-0004-47a2-835a-a8d455b859dd"
 #: XY colour of light. Two 16-bit ints. 0xFFFFFFFF when CW/WW. Handle 58.
 UUID_XY_COLOUR = "932c32bd-0005-47a2-835a-a8d455b859dd"
 
-#: new colour change and effect enpoint
+#: Colour change and effect endpoint. Uses TLV.
 UUID_EFFECTS = "932c32bd-0007-47a2-835a-a8d455b859dd"
+
+# UUID for capability information of the light (e.g min/max colour temp). Uses TLV.
+UUID_CAPABILITY = "932c32bd-0001-47a2-835a-a8d455b859dd"
 
 #: This is a UUID that as far as I know only hue lights use and it shows up
 #: under BLE Device details and as such does not require connecting to check

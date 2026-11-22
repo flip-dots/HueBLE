@@ -40,6 +40,7 @@ from HueBLE.const import (
     MAX_MIREDS,
     MIN_MIREDS,
     UUID_BRIGHTNESS,
+    UUID_CAPABILITY,
     UUID_EFFECTS,
     UUID_FW_VERSION,
     UUID_MANUFACTURER,
@@ -50,7 +51,8 @@ from HueBLE.const import (
     UUID_XY_COLOUR,
     UUID_ZIGBEE_ADDRESS,
 )
-from HueBLE.constructs import TLV_EFFECT, EffectType, TLVTag
+from HueBLE.constructs.capability import TLV_CAPABILITY, CapabilityTLVTag
+from HueBLE.constructs.effects import TLV_EFFECT, EffectTLVTag, EffectType
 from HueBLE.exceptions import (
     CallbackError,
     ConnectionError,  # noqa: A004
@@ -109,6 +111,7 @@ class HueBleLight:
         self._supports_metadata_firmware: bool | None = None
         self._supports_metadata_zigbee_address: bool | None = None
         self._supports_metadata_name_in_app: bool | None = None
+        self._supports_metadata_capability: bool | None = None
 
         self._supports_on_off: bool | None = None
         self._supports_brightness: bool | None = None
@@ -324,51 +327,51 @@ class HueBleLight:
 
             state_difference: dict[str, tuple[Any, Any]] = {}
 
-            power_on = tlv.get(TLVTag.ON_OFF)
+            power_on = tlv.get(EffectTLVTag.ON_OFF)
             if power_on != self._power_on:
-                state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+                state_difference[EffectTLVTag.ON_OFF.name] = (self._power_on, power_on)
                 self._supports_on_off = True
                 self._power_on = power_on
 
-            brightness = tlv.get(TLVTag.BRIGHTNESS)
+            brightness = tlv.get(EffectTLVTag.BRIGHTNESS)
             if brightness != self._brightness:
-                state_difference[TLVTag.BRIGHTNESS.name] = (
+                state_difference[EffectTLVTag.BRIGHTNESS.name] = (
                     self._brightness,
                     brightness,
                 )
                 self._supports_brightness = True
                 self._brightness = brightness
 
-            colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+            colour_temp = tlv.get(EffectTLVTag.COLOUR_TEMP)
             if colour_temp != self._colour_temp:
-                state_difference[TLVTag.COLOUR_TEMP.name] = (
+                state_difference[EffectTLVTag.COLOUR_TEMP.name] = (
                     self._colour_temp,
                     colour_temp,
                 )
                 self._supports_colour_temp = True
                 self._colour_temp = colour_temp
 
-            colour_xy = tlv.get(TLVTag.COLOUR_XY)
+            colour_xy = tlv.get(EffectTLVTag.COLOUR_XY)
             if colour_xy != self._colour_xy:
-                state_difference[TLVTag.COLOUR_XY.name] = (
+                state_difference[EffectTLVTag.COLOUR_XY.name] = (
                     self._colour_xy,
                     colour_xy,
                 )
                 self._supports_colour_xy = True
                 self._colour_xy = colour_xy
 
-            effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+            effect_type = tlv.get(EffectTLVTag.EFFECT_TYPE)
             if effect_type != self._effect:
-                state_difference[TLVTag.EFFECT_TYPE.name] = (
+                state_difference[EffectTLVTag.EFFECT_TYPE.name] = (
                     self._effect,
                     effect_type,
                 )
                 self._supports_effects = True
                 self._effect = effect_type
 
-            effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+            effect_speed = tlv.get(EffectTLVTag.EFFECT_SPEED)
             if effect_speed != self._effect_speed:
-                state_difference[TLVTag.EFFECT_SPEED.name] = (
+                state_difference[EffectTLVTag.EFFECT_SPEED.name] = (
                     self._effect_speed,
                     effect_speed,
                 )
@@ -750,6 +753,9 @@ class HueBleLight:
         self._supports_metadata_name_in_app = (
             self._client.services.get_characteristic(UUID_NAME) is not None
         )
+        self._supports_metadata_capability = (
+            self._client.services.get_characteristic(UUID_CAPABILITY) is not None
+        )
         self._supports_on_off = (
             self._client.services.get_characteristic(UUID_POWER) is not None
         )
@@ -866,6 +872,15 @@ class HueBleLight:
                 else:
                     _LOGGER.debug("Light does not support polling light name")
 
+                if self._supports_metadata_capability:
+                    if (
+                        self.minimum_mireds,
+                        self.maximum_mireds,
+                    ) != await self.poll_capability(write_state=True):
+                        state_changed = True
+                else:
+                    _LOGGER.debug("Light does not support polling capabilities")
+
                 if self.supports_effects:
                     if self.effect != await self.poll_effects(write_state=True):
                         state_changed = True
@@ -946,7 +961,11 @@ class HueBleLight:
                         await self.connect()
                     if self._client is None:
                         raise NotConnectedError  # noqa: TRY301
-                    return await self._client.read_gatt_char(address)
+                    value = await self._client.read_gatt_char(address)
+                    _LOGGER.debug(
+                        f"Successfully read '{value.hex()}' from '{self.name}'.",
+                    )
+                    return value
 
             except Exception as e:  # noqa: BLE001
                 _LOGGER.debug(
@@ -1247,23 +1266,21 @@ class HueBleLight:
         :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
         """
         data = await self._read_gatt(UUID_EFFECTS)
-
-        _LOGGER.debug(f"Effect bytes: {data.hex()}")
         tlv = TLV_EFFECT.parse(data)
         _LOGGER.debug(f"Parsed effect TLV: {tlv}")
 
         state_difference: dict[str, tuple[Any, Any]] = {}
 
-        power_on = tlv.get(TLVTag.ON_OFF)
+        power_on = tlv.get(EffectTLVTag.ON_OFF)
         if power_on != self._power_on:
-            state_difference[TLVTag.ON_OFF.name] = (self._power_on, power_on)
+            state_difference[EffectTLVTag.ON_OFF.name] = (self._power_on, power_on)
             if write_state:
                 self._supports_on_off = True
                 self._power_on = power_on
 
-        brightness = tlv.get(TLVTag.BRIGHTNESS)
+        brightness = tlv.get(EffectTLVTag.BRIGHTNESS)
         if brightness != self._brightness:
-            state_difference[TLVTag.BRIGHTNESS.name] = (
+            state_difference[EffectTLVTag.BRIGHTNESS.name] = (
                 self._brightness,
                 brightness,
             )
@@ -1271,9 +1288,9 @@ class HueBleLight:
                 self._supports_brightness = True
                 self._brightness = brightness
 
-        colour_temp = tlv.get(TLVTag.COLOUR_TEMP)
+        colour_temp = tlv.get(EffectTLVTag.COLOUR_TEMP)
         if colour_temp != self._colour_temp:
-            state_difference[TLVTag.COLOUR_TEMP.name] = (
+            state_difference[EffectTLVTag.COLOUR_TEMP.name] = (
                 self._colour_temp,
                 colour_temp,
             )
@@ -1281,9 +1298,9 @@ class HueBleLight:
                 self._supports_colour_temp = True
                 self._colour_temp = colour_temp
 
-        colour_xy = tlv.get(TLVTag.COLOUR_XY)
+        colour_xy = tlv.get(EffectTLVTag.COLOUR_XY)
         if colour_xy != self._colour_xy:
-            state_difference[TLVTag.COLOUR_XY.name] = (
+            state_difference[EffectTLVTag.COLOUR_XY.name] = (
                 self._colour_xy,
                 colour_xy,
             )
@@ -1291,18 +1308,18 @@ class HueBleLight:
                 self._supports_colour_xy = True
                 self._colour_xy = colour_xy
 
-        effect_type = tlv.get(TLVTag.EFFECT_TYPE)
+        effect_type = tlv.get(EffectTLVTag.EFFECT_TYPE)
         if effect_type != self._effect:
-            state_difference[TLVTag.EFFECT_TYPE.name] = (
+            state_difference[EffectTLVTag.EFFECT_TYPE.name] = (
                 self._effect,
                 effect_type,
             )
             if write_state:
                 self._effect = effect_type
 
-        effect_speed = tlv.get(TLVTag.EFFECT_SPEED)
+        effect_speed = tlv.get(EffectTLVTag.EFFECT_SPEED)
         if effect_speed != self._effect_speed:
-            state_difference[TLVTag.EFFECT_SPEED.name] = (
+            state_difference[EffectTLVTag.EFFECT_SPEED.name] = (
                 self._effect_speed,
                 effect_speed,
             )
@@ -1310,6 +1327,49 @@ class HueBleLight:
                 self._effect_speed = effect_speed
 
         return effect_type, effect_speed
+
+    async def poll_capability(
+        self,
+        write_state: bool = DEFAULT_POLL_WRITES_STATE,  # noqa: FBT001
+    ) -> tuple[int, int] | tuple[None, None]:
+        """
+        Poll capability of the light.
+
+        In the current implementation this returns the minimum and maximum
+        supported colour temperature values but may be extended in future
+        to add support for reading more values as they are decoded.
+
+        :param write_state: Write returned value to internal state.
+        :returns: Minimum and maximum supported colour temperatures.
+        :raises :exc:`~HueBLE.ReadError`: If unable to read from device.
+        """
+        data = await self._read_gatt(UUID_CAPABILITY)
+        tlv = TLV_CAPABILITY.parse(data)
+        _LOGGER.debug(f"Parsed capability TLV: {tlv}")
+
+        state_difference: dict[str, tuple[Any, Any]] = {}
+
+        min_colour_temp = tlv.get(CapabilityTLVTag.MINIMUM_COLOUR_TEMP)
+        if min_colour_temp != self._minimum_mireds:
+            state_difference[CapabilityTLVTag.MINIMUM_COLOUR_TEMP.name] = (
+                self._minimum_mireds,
+                min_colour_temp,
+            )
+            if write_state:
+                self._supports_metadata_capability = True
+                self._minimum_mireds = min_colour_temp
+
+        max_colour_temp = tlv.get(CapabilityTLVTag.MAXIMUM_COLOUR_TEMP)
+        if max_colour_temp != self._maximum_mireds:
+            state_difference[CapabilityTLVTag.MAXIMUM_COLOUR_TEMP.name] = (
+                self._maximum_mireds,
+                max_colour_temp,
+            )
+            if write_state:
+                self._supports_metadata_capability = True
+                self._maximum_mireds = max_colour_temp
+
+        return min_colour_temp, max_colour_temp
 
     async def set_light_name(self, name: str) -> None:
         """
@@ -1445,24 +1505,24 @@ class HueBleLight:
         :raises ValueError: If an invalid/out of range argument was provided.
         :raises :exc:`~HueBLE.WriteError`: If unable to write value to device.
         """  # noqa: E501
-        command_args: dict[TLVTag, Any] = {}
+        command_args: dict[EffectTLVTag, Any] = {}
 
         if power is not None:
-            command_args[TLVTag.ON_OFF] = power
+            command_args[EffectTLVTag.ON_OFF] = power
 
         if brightness is not None:
             if 0 >= brightness >= 255:  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)",  # noqa: E501, EM102
                 )
-            command_args[TLVTag.BRIGHTNESS] = brightness
+            command_args[EffectTLVTag.BRIGHTNESS] = brightness
 
         if colour is not None and type(colour) is int:
             if 0 > colour > 1000:  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)",  # noqa: E501, EM102
                 )
-            command_args[TLVTag.COLOUR_TEMP] = colour
+            command_args[EffectTLVTag.COLOUR_TEMP] = colour
         elif colour is not None and type(colour) is tuple:
             x, y = colour
             if 0.0 >= x >= 1.0:
@@ -1473,27 +1533,27 @@ class HueBleLight:
                 raise ValueError(  # noqa: TRY003
                     f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)",  # noqa: E501, EM102
                 )
-            command_args[TLVTag.COLOUR_XY] = (x, y)
+            command_args[EffectTLVTag.COLOUR_XY] = (x, y)
         elif colour is not None:
             raise ValueError(  # noqa: TRY003
                 f"Expected int or tuple for colour but got '{colour}'!",  # noqa: EM102
             )
 
         if effect is not None:
-            command_args[TLVTag.EFFECT_TYPE] = effect
+            command_args[EffectTLVTag.EFFECT_TYPE] = effect
         if effect_speed is not None:
             if 0 > effect_speed >= 255:  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)",  # noqa: E501, EM102
                 )
-            command_args[TLVTag.EFFECT_SPEED] = effect_speed
+            command_args[EffectTLVTag.EFFECT_SPEED] = effect_speed
 
         if transition is not None:
             if 0 > transition >= 65535:  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)",  # noqa: E501, EM102
                 )
-            command_args[TLVTag.TRANSITION] = transition
+            command_args[EffectTLVTag.TRANSITION] = transition
 
         _LOGGER.debug(f"Building packet with arguments: {command_args}")
         packet = TLV_EFFECT.build(command_args)  # type: ignore[arg-type]
@@ -1787,7 +1847,7 @@ class HueBleLight:
             is (0.0, 0.0) or (1.0, 1.0).
 
         :returns int: Colour temperature of light in mireds.
-        :returns None: If state not polled/pushed yet or feature is not supported.
+        :returns None: If state not polled/pushed yet, is inactive, or not supported.
         """
         if self.supports_colour_temp:
             return self._colour_temp
@@ -1843,7 +1903,7 @@ class HueBleLight:
             Is (0.0, 0.0) or (1.0, 1.0) if XY colour mode is inactive.
 
         :returns tuple[float, float]: XY colour coordinates of light.
-        :returns None: If state not polled/pushed yet or feature is not supported.
+        :returns None: If state not polled/pushed yet, is inactive, or is not supported.
         """
         if self.supports_colour_xy:
             return self._colour_xy
