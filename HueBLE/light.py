@@ -1511,25 +1511,25 @@ class HueBleLight:
             command_args[EffectTLVTag.ON_OFF] = power
 
         if brightness is not None:
-            if 0 >= brightness >= 255:  # noqa: PLR2004
+            if not (0 < brightness < 255):  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Brightness was '{brightness}' but must be above 0 and below 255 (excl 0 and 255)",  # noqa: E501, EM102
                 )
             command_args[EffectTLVTag.BRIGHTNESS] = brightness
 
         if colour is not None and type(colour) is int:
-            if 0 > colour > 1000:  # noqa: PLR2004
+            if not (0 < colour < 1000):  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
-                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (inc 0 and 1000)",  # noqa: E501, EM102
+                    f"Colour temp was '{colour}' but must be above 0 and below 1000 (excl 0 and 1000)",  # noqa: E501, EM102
                 )
             command_args[EffectTLVTag.COLOUR_TEMP] = colour
         elif colour is not None and type(colour) is tuple:
             x, y = colour
-            if 0.0 >= x >= 1.0:
+            if not (0.0 < x < 1.0):
                 raise ValueError(  # noqa: TRY003
                     f"X was '{x}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)",  # noqa: E501, EM102
                 )
-            if 0.0 >= y >= 1.0:
+            if not (0.0 < y < 1.0):
                 raise ValueError(  # noqa: TRY003
                     f"Y was '{y}' but must be above 0.0 and below 1.0 (excl 0.0 and 1.0)",  # noqa: E501, EM102
                 )
@@ -1542,14 +1542,14 @@ class HueBleLight:
         if effect is not None:
             command_args[EffectTLVTag.EFFECT_TYPE] = effect
         if effect_speed is not None:
-            if 0 > effect_speed >= 255:  # noqa: PLR2004
+            if not (0 <= effect_speed < 255):  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Effect speed was '{effect_speed}' but must be above 0 and below 255 (inc 0 excl 255)",  # noqa: E501, EM102
                 )
             command_args[EffectTLVTag.EFFECT_SPEED] = effect_speed
 
         if transition is not None:
-            if 0 > transition >= 65535:  # noqa: PLR2004
+            if not (0 <= transition < 65535):  # noqa: PLR2004
                 raise ValueError(  # noqa: TRY003
                     f"Transition speed was '{transition}' but must be above 0 and below 65535 (inc 0 excl 65535)",  # noqa: E501, EM102
                 )
